@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerador de Roteiros</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="fonts.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+</head>
+
+<body>
+    <header>
+        <h1>Gerador de Roteiros para Carrossel</h1>
+    </header>
+
+    <main>
+        <section class="api-status">
+            <p><span id="apiStatus">Carregando... <i class="fas fa-sync-alt fa-spin"></i></span></p>
+        </section>
+
+        <section class="theme-selection">
+            <h2>Selecione um Tema</h2>
+            <select id="themeDropdown">
+                <option value="">Carregando temas... <i class="fas fa-spinner fa-spin"></i></option>
+            </select>
+
+            <div id="carouselSelectionContainer" class="hidden" style="margin-top: 1rem;">
+                <label for="carouselDropdown">Selecione o Carrossel:</label>
+                <select id="carouselDropdown"
+                    style="width: 100%; padding: 0.5rem; font-size: 1rem; border: 1px solid #ccc; border-radius: 4px;">
+                </select>
+            </div>
+
+            <div class="color-picker-container hidden">
+                <label for="colorPicker">Cor de Fundo:</label>
+                <input type="color" id="colorPicker" value="#ffffff" title="Branco">
+                <button class="editor-btn color-shortcut" data-color="#F4F4F4" title="Cinza claro"><i
+                        class="fas fa-square-full" style="color: #F4F4F4; border: 1px solid #ccc;"></i></button>
+                <button class="editor-btn color-shortcut" data-color="#C36640" title="Terracota"><i
+                        class="fas fa-square-full" style="color: #C36640;"></i></button>
+
+            </div>
+        </section>
+
+        <section class="editor-toolbar hidden">
+            <button id="saveBtn" class="editor-btn" title="Salvar Roteiro"><i class="fas fa-save"></i></button>
+            <button id="boldBtn" class="editor-btn" title="Negrito"><i class="fas fa-bold"></i></button>
+            <button id="italicBtn" class="editor-btn" title="Itálico"><i class="fas fa-italic"></i></button>
+            <button id="underlineBtn" class="editor-btn" title="Sublinhado"><i class="fas fa-underline"></i></button>
+
+            <button id="leftAlignBtn" class="editor-btn" title="Alinhar à Esquerda"><i
+                    class="fas fa-align-left"></i></button>
+            <button id="centerAlignBtn" class="editor-btn" title="Centralizar"><i
+                    class="fas fa-align-center"></i></button>
+            <button id="rightAlignBtn" class="editor-btn" title="Alinhar à Direita"><i
+                    class="fas fa-align-right"></i></button>
+            <button id="justifyBtn" class="editor-btn" title="Justificar"><i class="fas fa-align-justify"></i></button>
+
+            <button id="bringToFrontBtn" title="Trazer para Frente" class="editor-btn"><i
+                    class="fas fa-angles-up"></i></button>
+            <button id="sendToBackBtn" title="Enviar para Trás" class="editor-btn"><i
+                    class="fas fa-angles-down"></i></button>
+
+            <input type="file" id="imageUpload" accept="image/*" style="display: none;">
+            <button type="button" class="editor-btn" id="uploadBtn" title="Adicionar Imagem"><i
+                    class="fas fa-image"></i></button>
+
+            <button id="deleteBtn" class="editor-btn" title="Excluir Elemento Selecionado" disabled><i
+                    class="fas fa-trash-alt"></i></button>
+
+            <button type="button" class="editor-btn" id="addSlideBtn" title="Adicionar Novo Slide"><i
+                    class="fas fa-plus"></i></button>
+
+            <button id="exportPngBtn" class="editor-btn" title="Exportar como PNG"><i
+                    class="fas fa-file-arrow-down"></i></button>
+
+            <select id="fontFamilySelect" class="editor-select">
+                <option value="">Fonte</option>
+                <option value="Arial">Arial</option>
+                <option value="Verdana">Verdana</option>
+                <option value="Georgia">Georgia</option>
+                <option value="Aguila">Aguila</option>
+                <option value="Aguila Bold">Aguila Bold</option>
+                <option value="Aguila Heavy">Aguila Heavy</option>
+                <option value="Aguila Medium">Aguila Medium</option>
+                <option value="Aguila Thin">Aguila Thin</option>
+                <option value="Cinzel">Cinzel</option>
+            </select>
+            <span class="editor-label">Cor do Texto:</span>
+            <input type="color" id="textColorPicker" class="editor-color-picker" value="#000000" title="Cor do Texto">
+            <button class="editor-btn text-color-shortcut" data-color="#F4F4F4" title="Cinza claro"><i
+                    class="fas fa-square-full" style="color: #F4F4F4; border: 1px solid #ccc;"></i></button>
+            <button class="editor-btn text-color-shortcut" data-color="#C36640" title="Terracota"><i
+                    class="fas fa-square-full" style="color: #C36640;"></i></button>
+            <button class="editor-btn text-color-shortcut" data-color="#000000" title="Preto"><i
+                    class="fas fa-square-full" style="color: #000000;"></i></button>
+            <select id="fontSizeSelect" class="editor-select">
+                <option value="">Tamanho</option>
+                <option value="10px">10px</option>
+                <option value="13px">13px</option>
+                <option value="16px">16px</option>
+                <option value="18px">18px</option>
+                <option value="20px">20px</option>
+                <option value="24px">24px</option>
+                <option value="30px">30px</option>
+                <option value="35px">35px</option>
+                <option value="40px">40px</option>
+                <option value="45px">45px</option>
+            </select>
+
+            <span class="editor-label" title="Opacidade"><i class="fas fa-circle-half-stroke"></i></span>
+            <input type="range" id="opacitySlider" class="editor-slider" min="0" max="1" step="0.1" value="1"
+                title="Opacidade">
+        </section>
+
+        <section class="carousel-content hidden">
+            <div id="slideContent">
+                <div class="export-preview"></div>
+            </div>
+
+            <div class="carousel-navigation">
+                <button id="prevBtn" class="nav-btn" disabled>&lt; Anterior</button>
+                <span id="slideCounter"></span>
+                <button id="nextBtn" class="nav-btn" disabled>Próximo &gt;</button>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <p>Desenvolvido por você! | <a href="https://github.com" target="_blank">Visite o Repositório no GitHub</a></p>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
+    <script src="script.js"></script>
+</body>
+
+</html>

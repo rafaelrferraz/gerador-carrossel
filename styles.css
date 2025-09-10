@@ -1,0 +1,445 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f4f4;
+    margin: 0;
+    padding: 0;
+    color: #333;
+}
+
+header {
+    background-color: #0056b3;
+    color: white;
+    padding: 1rem 0;
+    text-align: center;
+}
+
+main {
+    padding: 2rem;
+    max-width: 800px;
+    margin: auto;
+}
+
+section {
+    background: #fff;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.api-status {
+    font-size: 0.9em;
+    text-align: right;
+    color: #666;
+}
+
+#apiStatus {
+    font-weight: bold;
+    color: #0056b3;
+}
+
+.theme-selection h2 {
+    margin-top: 0;
+}
+
+#themeDropdown {
+    width: 100%;
+    padding: 0.5rem;
+    font-size: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.hidden {
+    display: none !important;
+}
+
+#slideContent {
+    width: 540px;
+    height: 675px;
+    overflow: hidden;
+    margin: 1rem auto;
+    box-sizing: border-box;
+    position: relative;
+    border: 2px solid #007BFF;
+}
+
+.export-preview {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+    z-index: 999;
+}
+
+.snap-line {
+    position: absolute;
+    background-color: rgba(0, 123, 255, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.1s ease-out;
+    z-index: 1000;
+}
+
+.snap-line.visible {
+    opacity: 1;
+}
+
+.snap-line.horizontal {
+    left: 0;
+    right: 0;
+    height: 1px;
+}
+
+.snap-line.vertical {
+    top: 0;
+    bottom: 0;
+    width: 1px;
+}
+
+.color-picker-container {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 1rem;
+}
+
+.carousel-navigation {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 1rem;
+}
+
+.nav-btn {
+    background-color: #007BFF;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    font-size: 1em;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.3s;
+}
+
+.nav-btn:hover:not(:disabled) {
+    background-color: #0056b3;
+}
+
+.nav-btn:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+#slideCounter {
+    font-weight: bold;
+    font-size: 1.2em;
+}
+
+footer {
+    text-align: center;
+    padding: 1rem 0;
+    color: #777;
+    font-size: 0.8em;
+}
+
+footer a {
+    color: #0056b3;
+    text-decoration: none;
+}
+
+.editor-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-bottom: 1rem;
+    padding: 10px;
+    border-radius: 8px;
+    background-color: #e9ecef;
+    align-items: center;
+}
+
+.editor-btn,
+.editor-select {
+    font-size: 1rem;
+    padding: 5px;
+    border: 1px solid #ccc;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    cursor: pointer;
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.editor-btn:disabled {
+    background-color: #e9ecef;
+    color: #adb5bd;
+    cursor: not-allowed;
+}
+
+.editor-select {
+    width: auto;
+    padding: 5px 10px;
+}
+
+
+.editor-btn:hover,
+.editor-select:hover {
+    background-color: #e2e6ea;
+}
+
+.editor-btn.active {
+    background-color: #007BFF;
+    color: white;
+    border-color: #007BFF;
+}
+
+.editor-btn i {
+    font-size: 1.2em;
+}
+
+.editor-color-picker {
+    width: 38px;
+    height: 38px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 0;
+    background: none;
+}
+
+.editor-color-picker:hover {
+    border-color: #007BFF;
+}
+
+.editable-text {
+    position: absolute;
+    min-width: 100px;
+    min-height: 100px;
+    max-width: 100%;
+    padding: 10px;
+    border: 2px dashed transparent;
+    cursor: text;
+    display: inline-block;
+    box-sizing: border-box;
+    text-align: center;
+    transform-origin: 50% 50%;
+}
+
+.editable-text:focus {
+    border: 2px dashed #007BFF;
+}
+
+/* Regras específicas para o espaçamento de cada tipo de texto */
+.slide-titulo {
+    line-height: 1.6;
+    /* Espaçamento mais justo para títulos */
+}
+
+.slide-corpo {
+    line-height: 2;
+    /* Espaçamento maior para o corpo do texto */
+}
+
+.slide-fechamento {
+    line-height: 1.6;
+    /* Espaçamento intermediário para a chamada final */
+}
+
+/* Regra de hover atualizada para usar a nova classe */
+.editable-text:hover .move-handle-text {
+    display: flex;
+}
+
+h2[contenteditable="true"]:focus,
+p[contenteditable="true"]:focus {
+    border: 2px dashed #007BFF;
+}
+
+.image-container {
+    position: absolute;
+    display: inline-block;
+    min-width: 50px;
+    min-height: 50px;
+}
+
+.image-container:hover {
+    outline: 2px solid #0056b3;
+}
+
+.image-container.rotating {
+    outline: 2px solid #28a745 !important;
+}
+
+.image-container.resizing {
+    outline: 2px solid #ffc107 !important;
+}
+
+.image-container img {
+    display: block;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+.rotate-handle {
+    position: absolute;
+    top: -15px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 30px;
+    height: 30px;
+    background: #007BFF;
+    border: 2px solid white;
+    border-radius: 50%;
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 14px;
+    z-index: 1001;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    opacity: 0;
+    transition: all 0.2s ease;
+}
+
+.rotate-handle:hover {
+    background: #0056b3;
+    transform: scale(1.1);
+}
+
+.rotate-handle:active {
+    cursor: grabbing;
+    background: #28a745;
+}
+
+.resize-handle {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    background: #007BFF;
+    border: 2px solid white;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 10px;
+    font-weight: bold;
+    z-index: 1002;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    opacity: 0;
+    transition: all 0.2s ease;
+}
+
+.resize-handle:hover {
+    background: #0056b3;
+    transform: scale(1.2);
+}
+
+.resize-handle:active {
+    background: #ffc107;
+}
+
+.image-container:hover .resize-handle,
+.image-container:hover .rotate-handle {
+    opacity: 1;
+}
+
+.image-container.resizing .resize-handle,
+.image-container.rotating .rotate-handle {
+    opacity: 1;
+}
+
+.image-container.rotating,
+.image-container.resizing {
+    pointer-events: none;
+}
+
+.image-container.rotating .rotate-handle,
+.image-container.resizing .resize-handle {
+    pointer-events: all;
+}
+
+#slideContent p b,
+#slideContent p strong {
+    font-family: "Aguila Bold";
+    font-weight: bold;
+}
+
+.element-selected {
+    outline: 2px solid #0056b3 !important;
+    box-shadow: 0 0 10px rgba(0, 86, 179, 0.5);
+}
+
+.editor-label {
+    font-size: 0.9em;
+    margin-left: 5px;
+    color: #333;
+}
+
+.editor-slider {
+    -webkit-appearance: none;
+    width: 100px;
+    height: 8px;
+    background: #ddd;
+    border-radius: 5px;
+    outline: none;
+    cursor: pointer;
+    margin: 0 5px;
+}
+
+.editor-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    background: #007BFF;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.editor-slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    background: #007BFF;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.move-handle-text {
+    position: absolute;
+    top: -12px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 24px;
+    height: 24px;
+    background-color: #007BFF;
+    color: white;
+    border-radius: 50%;
+    cursor: move;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    z-index: 1004;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+h2[contenteditable="true"]:hover .move-handle-text,
+p[contenteditable="true"]:hover .move-handle-text {
+    display: flex;
+}
+
+.slide-corpo b,
+.slide-corpo strong,
+.slide-fechamento b,
+.slide-fechamento strong {
+    color: #000000;
+}
