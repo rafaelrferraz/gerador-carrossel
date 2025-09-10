@@ -443,3 +443,48 @@ p[contenteditable="true"]:hover .move-handle-text {
 .slide-fechamento strong {
     color: #000000;
 }
+
+
+@media (max-width: 600px) {
+  body {
+    font-size: 14px; /* Diminui a fonte para melhor leitura */
+  }
+  
+  main {
+    padding: 1rem; /* Reduz o padding para ocupar mais espaço */
+  }
+
+  section {
+    padding: 1rem; /* Ajusta o padding das seções */
+    margin-bottom: 1rem; /* Reduz a margem inferior */
+  }
+
+  .editor-toolbar {
+    flex-wrap: wrap; /* Permite que os botões quebrem para a próxima linha */
+    gap: 5px; /* Adiciona um pequeno espaço entre os botões */
+    justify-content: center; /* Centraliza os botões */
+    padding: 5px;
+  }
+  
+  .editor-btn,
+  .editor-select {
+    width: 32px;
+    height: 32px;
+    font-size: 0.8em;
+  }
+
+  #slideContent {
+    width: 300px;
+    height: 375px; /* Proporção de 4:5, ideal para o Instagram */
+    margin: 1rem auto;
+  }
+
+  .carousel-navigation {
+    flex-direction: column; /* Empilha os botões de navegação */
+  }
+
+  .nav-btn {
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+}
