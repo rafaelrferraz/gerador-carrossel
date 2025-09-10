@@ -54,6 +54,7 @@ section {
     display: none !important;
 }
 
+/* O slide #slideContent agora tem uma largura fluida para mobile */
 #slideContent {
     width: 540px;
     height: 675px;
@@ -187,7 +188,6 @@ footer a {
     width: auto;
     padding: 5px 10px;
 }
-
 
 .editor-btn:hover,
 .editor-select:hover {
@@ -444,47 +444,48 @@ p[contenteditable="true"]:hover .move-handle-text {
     color: #000000;
 }
 
-
+/* MOBILE OPTIMIZATION */
 @media (max-width: 600px) {
-  body {
-    font-size: 14px; /* Diminui a fonte para melhor leitura */
-  }
-  
-  main {
-    padding: 1rem; /* Reduz o padding para ocupar mais espaço */
-  }
+    body {
+        font-size: 14px;
+    }
+    
+    main {
+        padding: 1rem;
+    }
 
-  section {
-    padding: 1rem; /* Ajusta o padding das seções */
-    margin-bottom: 1rem; /* Reduz a margem inferior */
-  }
+    section {
+        padding: 1rem;
+        margin-bottom: 1rem;
+    }
 
-  .editor-toolbar {
-    flex-wrap: wrap; /* Permite que os botões quebrem para a próxima linha */
-    gap: 5px; /* Adiciona um pequeno espaço entre os botões */
-    justify-content: center; /* Centraliza os botões */
-    padding: 5px;
-  }
-  
-  .editor-btn,
-  .editor-select {
-    width: 32px;
-    height: 32px;
-    font-size: 0.8em;
-  }
+    .editor-toolbar {
+        flex-wrap: wrap;
+        gap: 5px;
+        justify-content: center;
+        padding: 5px;
+    }
+    
+    .editor-btn,
+    .editor-select {
+        width: 32px;
+        height: 32px;
+        font-size: 0.8em;
+    }
 
-  #slideContent {
-    width: 300px;
-    height: 375px; /* Proporção de 4:5, ideal para o Instagram */
-    margin: 1rem auto;
-  }
+    /* O #slideContent agora usa largura e altura dinâmicas */
+    #slideContent {
+        width: 90vw;
+        height: calc(90vw * 1.25);
+        margin: 1rem auto;
+    }
 
-  .carousel-navigation {
-    flex-direction: column; /* Empilha os botões de navegação */
-  }
+    .carousel-navigation {
+        flex-direction: column;
+    }
 
-  .nav-btn {
-    width: 100%;
-    margin-top: 0.5rem;
-  }
+    .nav-btn {
+        width: 100%;
+        margin-top: 0.5rem;
+    }
 }
