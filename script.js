@@ -551,143 +551,177 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderSlide() {
-        if (allRoteiros.length === 0) return;
-        zIndexCounter = 1;
-        selectedElement = null;
-        deleteBtn.disabled = true;
-        const roteiro = allRoteiros[currentSlideIndex];
-        slideContent.innerHTML = '';
-        slideContent.style.backgroundColor = roteiro.backgroundColor || '#ffffff';
-        colorPicker.value = roteiro.backgroundColor || '#ffffff';
-        const isDarkBackground = roteiro.backgroundColor === '#C36640';
-        const textColor = isDarkBackground ? '#F4F4F4' : '#C36640';
-        textColorPicker.value = textColor;
-        const slideWidth = slideContent.clientWidth;
-        const slideHeight = slideContent.clientHeight;
-        const isFirstSlide = currentSlideIndex === 0;
-        const titleFontForThisSlide = isFirstSlide ? 'Cinzel' : 'Aguila Bold';
-        const bodyFontForThisSlide = isFirstSlide ? 'Cinzel' : 'Aguila';
+    if (allRoteiros.length === 0) return;
+    zIndexCounter = 1;
+    selectedElement = null;
+    deleteBtn.disabled = true;
+    const roteiro = allRoteiros[currentSlideIndex];
+    slideContent.innerHTML = '';
+    slideContent.style.backgroundColor = roteiro.backgroundColor || '#ffffff';
+    colorPicker.value = roteiro.backgroundColor || '#ffffff';
+    const isDarkBackground = roteiro.backgroundColor === '#C36640';
+    const textColor = isDarkBackground ? '#F4F4F4' : '#C36640';
+    textColorPicker.value = textColor;
+    
+    // --- LÓGICA PARA DETECTAR E AJUSTAR PARA MOBILE ---
+    const isMobileDevice = /Mobi|Android/i.test(navigator.userAgent);
+    
+    // Variáveis de configuração para desktop (padrão)
+    let slideWidth = 540;
+    let slideHeight = 675;
+    let titleFontSize = roteiro.tituloFontSize || '30px';
+    let bodyFontSize = roteiro.corpoFontSize || '18px';
+    let fechamentoFontSize = roteiro.fechamentoFontSize || '18px';
+    let titleY = roteiro.tituloY !== undefined ? roteiro.tituloY : 50;
+    let corpoWidth = roteiro.corpoWidth || '400px';
 
-        const exportPreview = document.createElement('div');
-        exportPreview.className = 'export-preview';
-        slideContent.appendChild(exportPreview);
-
-        updateWatermark();
-
-        // Cria e posiciona o título
-        if (roteiro.titulo && roteiro.titulo.trim() !== "") {
-            const tituloEl = document.createElement('h2');
-            tituloEl.classList.add('editable-text', 'slide-titulo');
-            tituloEl.contentEditable = 'true';
-            tituloEl.innerHTML = roteiro.titulo;
-            tituloEl.style.color = textColor;
-            tituloEl.style.fontFamily = titleFontForThisSlide;
-            tituloEl.style.fontSize = roteiro.tituloFontSize || '30px';
-            tituloEl.style.width = roteiro.tituloWidth || '400px';
-            tituloEl.style.height = roteiro.tituloHeight || 'auto';
-            tituloEl.style.position = 'absolute';
-            tituloEl.style.zIndex = roteiro.tituloZIndex || zIndexCounter++;
-            tituloEl.style.opacity = roteiro.tituloOpacity || 1;
-            tituloEl.setAttribute('data-zindex', tituloEl.style.zIndex);
-            slideContent.appendChild(tituloEl);
-            addMoveHandleToText(tituloEl);
-
-            const tituloX = roteiro.tituloX !== undefined ? roteiro.tituloX : (slideWidth - tituloEl.offsetWidth) / 2;
-            const tituloY = roteiro.tituloY !== undefined ? roteiro.tituloY : 50;
-            tituloEl.setAttribute('data-x', tituloX);
-            tituloEl.setAttribute('data-y', tituloY);
-            tituloEl.style.transform = `translate(${tituloX}px, ${tituloY}px)`;
-        }
-
-        // Cria e posiciona o corpo do texto
-        if (roteiro.corpo && roteiro.corpo.trim() !== "") {
-            const corpoEl = document.createElement('p');
-            corpoEl.classList.add('editable-text', 'slide-corpo');
-            corpoEl.contentEditable = 'true';
-            corpoEl.innerHTML = roteiro.corpo;
-            corpoEl.style.color = textColor;
-            corpoEl.style.fontFamily = bodyFontForThisSlide;
-            corpoEl.style.fontSize = roteiro.corpoFontSize || '18px';
-            corpoEl.style.width = roteiro.corpoWidth || '400px';
-            corpoEl.style.height = roteiro.corpoHeight || 'auto';
-            corpoEl.style.position = 'absolute';
-            corpoEl.style.textAlign = 'justify';
-            corpoEl.style.zIndex = roteiro.corpoZIndex || zIndexCounter++;
-            corpoEl.style.opacity = roteiro.corpoOpacity || 1;
-            corpoEl.setAttribute('data-zindex', corpoEl.style.zIndex);
-            slideContent.appendChild(corpoEl);
-            addMoveHandleToText(corpoEl);
-
-            const corpoX = roteiro.corpoX !== undefined ? roteiro.corpoX : (slideWidth - corpoEl.offsetWidth) / 2;
-            let corpoY = roteiro.corpoY !== undefined ? roteiro.corpoY : 0;
-
-            // Nova lógica de posicionamento dinâmico para o corpo
-            if (corpoY === 0) {
-                const tituloEl = slideContent.querySelector('.slide-titulo');
-                if (tituloEl) {
-                    const tituloHeight = tituloEl.offsetHeight;
-                    const tituloY = parseFloat(tituloEl.getAttribute('data-y')) || 0;
-                    corpoY = tituloY + tituloHeight + 30; // 30px de espaçamento
-                } else {
-                    corpoY = (slideHeight / 2) - 50;
-                }
-            }
-
-            corpoEl.setAttribute('data-x', corpoX);
-            corpoEl.setAttribute('data-y', corpoY);
-            corpoEl.style.transform = `translate(${corpoX}px, ${corpoY}px)`;
-        }
-
-        // Cria e posiciona o fechamento
-        if (roteiro.fechamento && roteiro.fechamento.trim() !== "") {
-            const fechamentoEl = document.createElement('p');
-            fechamentoEl.classList.add('editable-text', 'slide-fechamento');
-            fechamentoEl.contentEditable = 'true';
-            fechamentoEl.innerHTML = roteiro.fechamento;
-            fechamentoEl.style.color = textColor;
-            fechamentoEl.style.fontFamily = '"Aguila Bold"';
-            fechamentoEl.style.fontSize = roteiro.fechamentoFontSize || '18px';
-            fechamentoEl.style.width = roteiro.fechamentoWidth || '400px';
-            fechamentoEl.style.height = roteiro.fechamentoHeight || 'auto';
-            fechamentoEl.style.position = 'absolute';
-            fechamentoEl.style.zIndex = roteiro.fechamentoZIndex || zIndexCounter++;
-            fechamentoEl.style.opacity = roteiro.fechamentoOpacity || 1;
-            fechamentoEl.setAttribute('data-zindex', fechamentoEl.style.zIndex);
-            slideContent.appendChild(fechamentoEl);
-            addMoveHandleToText(fechamentoEl);
-
-            const fechamentoX = roteiro.fechamentoX !== undefined ? roteiro.fechamentoX : (slideWidth - fechamentoEl.offsetWidth) / 2;
-            let fechamentoY = roteiro.fechamentoY !== undefined ? roteiro.fechamentoY : 0;
-
-            // Nova lógica de posicionamento dinâmico para o fechamento
-            if (fechamentoY === 0) {
-                const corpoEl = slideContent.querySelector('.slide-corpo');
-                if (corpoEl) {
-                    const corpoHeight = corpoEl.offsetHeight;
-                    const corpoY = parseFloat(corpoEl.getAttribute('data-y')) || 0;
-                    fechamentoY = corpoY + corpoHeight + 0; // 30px de espaçamento
-                } else {
-                    fechamentoY = (slideHeight / 2) + 50;
-                }
-            }
-
-            fechamentoEl.setAttribute('data-x', fechamentoX);
-            fechamentoEl.setAttribute('data-y', fechamentoY);
-            fechamentoEl.style.transform = `translate(${fechamentoX}px, ${fechamentoY}px)`;
-        }
-
-        // Carrega as imagens
-        if (roteiro.imagens && Array.isArray(roteiro.imagens)) {
-            roteiro.imagens.forEach(imgData => createImageElement(imgData));
-        }
-
-        slideCounter.textContent = `${currentSlideIndex + 1} / ${allRoteiros.length}`;
-        prevBtn.disabled = currentSlideIndex === 0;
-        nextBtn.disabled = allRoteiros.length <= 1 || currentSlideIndex === allRoteiros.length - 1;
-        updateToolbarState();
-        createSnapLines();
+    if (isMobileDevice) {
+        // Ajustes específicos para mobile
+        slideWidth = window.innerWidth * 0.9; // 90% da largura da tela
+        slideHeight = slideWidth * 1.25;      // Mantém a proporção de 4:5
+        titleFontSize = '20px';
+        bodyFontSize = '14px';
+        fechamentoFontSize = '14px';
+        titleY = 30; // Posiciona o título um pouco mais acima
+        corpoWidth = '280px'; // Largura menor para o texto do corpo
     }
 
+    // Aplica os novos tamanhos ao contêiner do slide
+    slideContent.style.width = `${slideWidth}px`;
+    slideContent.style.height = `${slideHeight}px`;
+    // --- FIM DA LÓGICA PARA MOBILE ---
+
+    const isFirstSlide = currentSlideIndex === 0;
+    const titleFontForThisSlide = isFirstSlide ? 'Cinzel' : 'Aguila Bold';
+    const bodyFontForThisSlide = isFirstSlide ? 'Cinzel' : 'Aguila';
+
+    const exportPreview = document.createElement('div');
+    exportPreview.className = 'export-preview';
+    slideContent.appendChild(exportPreview);
+
+    updateWatermark();
+
+    // Cria e posiciona o título
+    if (roteiro.titulo && roteiro.titulo.trim() !== "") {
+        const tituloEl = document.createElement('h2');
+        tituloEl.classList.add('editable-text', 'slide-titulo');
+        tituloEl.contentEditable = 'true';
+        tituloEl.innerHTML = roteiro.titulo;
+        tituloEl.style.color = textColor;
+        tituloEl.style.fontFamily = titleFontForThisSlide;
+        
+        // Usa a variável de tamanho de fonte otimizada
+        tituloEl.style.fontSize = titleFontSize;
+
+        tituloEl.style.width = roteiro.tituloWidth || corpoWidth; // Usa a largura ajustada
+        tituloEl.style.height = roteiro.tituloHeight || 'auto';
+        tituloEl.style.position = 'absolute';
+        tituloEl.style.zIndex = roteiro.tituloZIndex || zIndexCounter++;
+        tituloEl.style.opacity = roteiro.tituloOpacity || 1;
+        tituloEl.setAttribute('data-zindex', tituloEl.style.zIndex);
+        slideContent.appendChild(tituloEl);
+        addMoveHandleToText(tituloEl);
+
+        const tituloX = roteiro.tituloX !== undefined ? roteiro.tituloX : (slideWidth - tituloEl.offsetWidth) / 2;
+        tituloEl.setAttribute('data-x', tituloX);
+        tituloEl.setAttribute('data-y', titleY); // Usa a posição Y ajustada
+        tituloEl.style.transform = `translate(${tituloX}px, ${titleY}px)`;
+    }
+
+    // Cria e posiciona o corpo do texto
+    if (roteiro.corpo && roteiro.corpo.trim() !== "") {
+        const corpoEl = document.createElement('p');
+        corpoEl.classList.add('editable-text', 'slide-corpo');
+        corpoEl.contentEditable = 'true';
+        corpoEl.innerHTML = roteiro.corpo;
+        corpoEl.style.color = textColor;
+        corpoEl.style.fontFamily = bodyFontForThisSlide;
+        
+        // Usa a variável de tamanho de fonte otimizada
+        corpoEl.style.fontSize = bodyFontSize;
+
+        corpoEl.style.width = corpoWidth; // Usa a largura ajustada
+        corpoEl.style.height = roteiro.corpoHeight || 'auto';
+        corpoEl.style.position = 'absolute';
+        corpoEl.style.textAlign = 'justify';
+        corpoEl.style.zIndex = roteiro.corpoZIndex || zIndexCounter++;
+        corpoEl.style.opacity = roteiro.corpoOpacity || 1;
+        corpoEl.setAttribute('data-zindex', corpoEl.style.zIndex);
+        slideContent.appendChild(corpoEl);
+        addMoveHandleToText(corpoEl);
+
+        const corpoX = roteiro.corpoX !== undefined ? roteiro.corpoX : (slideWidth - corpoEl.offsetWidth) / 2;
+        let corpoY = roteiro.corpoY !== undefined ? roteiro.corpoY : 0;
+
+        // Lógica de posicionamento dinâmico permanece
+        if (corpoY === 0) {
+            const tituloEl = slideContent.querySelector('.slide-titulo');
+            if (tituloEl) {
+                const tituloHeight = tituloEl.offsetHeight;
+                const tituloY = parseFloat(tituloEl.getAttribute('data-y')) || 0;
+                corpoY = tituloY + tituloHeight + (isMobileDevice ? 15 : 30); // Espaçamento menor em mobile
+            } else {
+                corpoY = (slideHeight / 2) - 50;
+            }
+        }
+
+        corpoEl.setAttribute('data-x', corpoX);
+        corpoEl.setAttribute('data-y', corpoY);
+        corpoEl.style.transform = `translate(${corpoX}px, ${corpoY}px)`;
+    }
+
+    // Cria e posiciona o fechamento
+    if (roteiro.fechamento && roteiro.fechamento.trim() !== "") {
+        const fechamentoEl = document.createElement('p');
+        fechamentoEl.classList.add('editable-text', 'slide-fechamento');
+        fechamentoEl.contentEditable = 'true';
+        fechamentoEl.innerHTML = roteiro.fechamento;
+        fechamentoEl.style.color = textColor;
+        fechamentoEl.style.fontFamily = '"Aguila Bold"';
+        
+        // Usa a variável de tamanho de fonte otimizada
+        fechamentoEl.style.fontSize = fechamentoFontSize;
+
+        fechamentoEl.style.width = roteiro.fechamentoWidth || corpoWidth;
+        fechamentoEl.style.height = roteiro.fechamentoHeight || 'auto';
+        fechamentoEl.style.position = 'absolute';
+        fechamentoEl.style.zIndex = roteiro.fechamentoZIndex || zIndexCounter++;
+        fechamentoEl.style.opacity = roteiro.fechamentoOpacity || 1;
+        fechamentoEl.setAttribute('data-zindex', fechamentoEl.style.zIndex);
+        slideContent.appendChild(fechamentoEl);
+        addMoveHandleToText(fechamentoEl);
+
+        const fechamentoX = roteiro.fechamentoX !== undefined ? roteiro.fechamentoX : (slideWidth - fechamentoEl.offsetWidth) / 2;
+        let fechamentoY = roteiro.fechamentoY !== undefined ? roteiro.fechamentoY : 0;
+
+        // Nova lógica de posicionamento dinâmico para o fechamento
+        if (fechamentoY === 0) {
+            const corpoEl = slideContent.querySelector('.slide-corpo');
+            if (corpoEl) {
+                const corpoHeight = corpoEl.offsetHeight;
+                const corpoY = parseFloat(corpoEl.getAttribute('data-y')) || 0;
+                fechamentoY = corpoY + corpoHeight + (isMobileDevice ? 15 : 30);
+            } else {
+                fechamentoY = (slideHeight / 2) + (isMobileDevice ? 30 : 50);
+            }
+        }
+
+        fechamentoEl.setAttribute('data-x', fechamentoX);
+        fechamentoEl.setAttribute('data-y', fechamentoY);
+        fechamentoEl.style.transform = `translate(${fechamentoX}px, ${fechamentoY}px)`;
+    }
+
+    // Carrega as imagens
+    if (roteiro.imagens && Array.isArray(roteiro.imagens)) {
+        roteiro.imagens.forEach(imgData => createImageElement(imgData));
+    }
+
+    slideCounter.textContent = `${currentSlideIndex + 1} / ${allRoteiros.length}`;
+    prevBtn.disabled = currentSlideIndex === 0;
+    nextBtn.disabled = allRoteiros.length <= 1 || currentSlideIndex === allRoteiros.length - 1;
+    updateToolbarState();
+    createSnapLines();
+}
     function saveCurrentSlideContent() {
         if (!allRoteiros[currentSlideIndex]) return;
         const currentRoteiro = allRoteiros[currentSlideIndex];
