@@ -365,7 +365,61 @@ body.is-panning {
 body.is-panning:active {
     cursor: grabbing;
 }
+/* --- ESTILOS CUSTOMIZADOS PARA ELEMENTOS DE FORMULÁRIO --- */
 
+/* 1. Estilo para o foco dos Dropdowns */
+.editor-select:focus {
+    outline: none; /* Remove o contorno azul padrão */
+    border-color: var(--primary-color); /* Deixa a borda com a cor primária */
+    /* Adiciona um "brilho" suave com a cor primária */
+    box-shadow: 0 0 0 2px rgba(195, 102, 64, 0.25); 
+}
+
+/* 2. Estilo para a Barra de Opacidade (Slider) */
+.editor-slider {
+    -webkit-appearance: none; /* Remove o estilo padrão do Webkit (Chrome, Safari) */
+    appearance: none;
+    width: 120px; /* Aumenta um pouco a largura para melhor usabilidade */
+    height: 6px;  /* Altura da barra */
+    background: #e0e0e0; /* Cor da barra (trilho) */
+    border-radius: 5px;
+    outline: none;
+    transition: opacity .2s;
+    vertical-align: middle; /* Alinha melhor com os ícones ao lado */
+}
+
+/* A bolinha do slider para Chrome, Safari, Edge */
+.editor-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: var(--primary-color); /* Cor da bolinha */
+    cursor: pointer;
+    border: 2px solid white;
+    box-shadow: 0 0 2px rgba(0,0,0,0.2);
+    margin-top: -4.5px; /* Centraliza a bolinha na barra */
+}
+
+/* A bolinha do slider para Firefox */
+.editor-slider::-moz-range-thumb {
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: var(--primary-color); /* Cor da bolinha */
+    cursor: pointer;
+    border: 2px solid white;
+    box-shadow: 0 0 2px rgba(0,0,0,0.2);
+}
+
+/* Efeito de "brilho" ao focar no slider */
+.editor-slider:focus::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px rgba(195, 102, 64, 0.25);
+}
+.editor-slider:focus::-moz-range-thumb {
+    box-shadow: 0 0 0 3px rgba(195, 102, 64, 0.25);
+}
 
 footer {
     text-align: center;
