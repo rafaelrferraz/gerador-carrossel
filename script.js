@@ -422,7 +422,43 @@ document.addEventListener('DOMContentLoaded', () => {
         updateToolbarState();
         updateWatermark();
     }
+    async function uploadImageToCloudinary(file) {
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        if (loadingSpinner) loadingSpinner.classList.remove('hidden');
 
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+
+        try {
+            const response = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/upload`, {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            // VERIFICA SE A RESPOSTA DO CLOUDINARY FOI UM ERRO
+            if (!response.ok) {
+                // Se houver um objeto de erro na resposta, usa a mensagem dele
+                if (data.error) {
+                    throw new Error(data.error.message);
+                }
+                // Caso contrário, usa o status da resposta
+                throw new Error(`Falha no upload. Status: ${response.status}`);
+            }
+
+            return data.secure_url;
+
+        } catch (error) {
+            console.error('Erro detalhado no upload:', error);
+            // MOSTRA O ERRO EXATO NO ALERTA
+            alert(`Erro ao carregar a imagem: ${error.message}`);
+            return null;
+        } finally {
+            if (loadingSpinner) loadingSpinner.classList.add('hidden');
+        }
+    }
     // --- API & DADOS ---
     async function fetchThemes() {
         const targetDropdowns = [introThemeDropdown, themeDropdown];
@@ -725,12 +761,62 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // === SETUP DE EVENTOS DO DOM ===
+
     function setupEventListeners() {
         const addSafeListener = (el, event, handler) => {
             if (el) el.addEventListener(event, handler);
         };
+
+        // --- Listener de Upload de Imagem CORRIGIDO ---
+        addSafeListener(imageUpload, 'change', async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+
+            // 1. FAZ O UPLOAD PARA O CLOUDINARY PRIMEIRO
+            const cloudinaryUrl = await uploadImageToCloudinary(file);
+            e.target.value = ''; // Limpa o input para poder selecionar o mesmo arquivo de novo
+
+            // 2. VERIFICA SE O UPLOAD FUNCIONOU
+            if (!cloudinaryUrl) {
+                console.error("Upload para o Cloudinary falhou. A imagem não será adicionada.");
+                return; // Para a execução se o upload falhou
+            }
+
+            // 3. USA A URL DO CLOUDINARY PARA CRIAR A IMAGEM NO SLIDE
+            const tempImg = new Image();
+            tempImg.onload = () => {
+                const ratio = tempImg.naturalWidth / tempImg.naturalHeight;
+                const initialWidth = 150;
+
+                const imgContainer = document.createElement('div');
+                imgContainer.id = `element-${elementCounter++}`;
+                imgContainer.className = 'draggable-item is-image';
+
+                const img = document.createElement('img');
+                img.src = cloudinaryUrl; // <-- USA A URL CORRETA DO CLOUDINARY
+                imgContainer.appendChild(img);
+
+                const handle = document.createElement('div');
+                handle.className = 'rotation-handle';
+                imgContainer.appendChild(handle);
+
+                imgContainer.style.width = initialWidth + 'px';
+                imgContainer.style.height = (initialWidth / ratio) + 'px';
+                imgContainer.setAttribute('data-ratio', ratio);
+                imgContainer.setAttribute('data-x', '50');
+                imgContainer.setAttribute('data-y', '50');
+                imgContainer.style.transform = `translate(50px, 50px)`;
+
+                slideContainer.appendChild(imgContainer);
+                makeInteractive(imgContainer);
+            };
+            // Carrega a imagem temporária usando a URL para pegar as dimensões
+            tempImg.src = cloudinaryUrl;
+        });
+
+        // --- O RESTANTE DOS LISTENERS ---
         addSafeListener(introThemeDropdown, 'change', e => { confirmBtn.classList.add('hidden'); fetchRoteiros(e.target.value, introCarouselDropdown); });
-        addSafeListener(introCarouselDropdown, 'change', e => loadRoteiroByIndex(parseInt(e.target.value, 10)));
+        addSafeListener(introCarouselDropdown, 'change', () => confirmBtn.classList.remove('hidden'));
         addSafeListener(confirmBtn, 'click', () => {
             const idx = parseInt(introCarouselDropdown.value, 10);
             if (!isNaN(idx) && themeRoteiros[idx]) {
@@ -753,40 +839,6 @@ document.addEventListener('DOMContentLoaded', () => {
         addSafeListener(uploadBtn, 'click', () => imageUpload.click());
         addSafeListener(saveBtn, 'click', saveEditedRoteiro);
         addSafeListener(addTextBtn, 'click', addNewTextBox);
-        addSafeListener(imageUpload, 'change', async (e) => {
-            const file = e.target.files?.[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = function (event) {
-                    const imageUrl = event.target.result;
-                    const tempImg = new Image();
-                    tempImg.onload = () => {
-                        const ratio = tempImg.naturalWidth / tempImg.naturalHeight;
-                        const initialWidth = 150;
-                        const imgContainer = document.createElement('div');
-                        imgContainer.id = `element-${elementCounter++}`;
-                        imgContainer.className = 'draggable-item is-image';
-                        const img = document.createElement('img');
-                        img.src = imageUrl;
-                        imgContainer.appendChild(img);
-                        const handle = document.createElement('div');
-                        handle.className = 'rotation-handle';
-                        imgContainer.appendChild(handle);
-                        imgContainer.style.width = initialWidth + 'px';
-                        imgContainer.style.height = (initialWidth / ratio) + 'px';
-                        imgContainer.setAttribute('data-ratio', ratio);
-                        imgContainer.setAttribute('data-x', '50');
-                        imgContainer.setAttribute('data-y', '50');
-                        imgContainer.style.transform = `translate(50px, 50px)`;
-                        slideContainer.appendChild(imgContainer);
-                        makeInteractive(imgContainer);
-                    };
-                    tempImg.src = imageUrl;
-                };
-                reader.readAsDataURL(file);
-                e.target.value = '';
-            }
-        });
         addSafeListener(boldBtn, 'click', () => applyFormat('bold'));
         addSafeListener(italicBtn, 'click', () => applyFormat('italic'));
         addSafeListener(underlineBtn, 'click', () => applyFormat('underline'));
@@ -855,8 +907,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 setActiveElement({ currentTarget: document.activeElement });
             }
         });
-
-        // --- LISTENERS PARA ZOOM E PAN ---
         const zoomPanContainer = document.getElementById('zoom-pan-container');
         addSafeListener(zoomPanContainer, 'wheel', (event) => {
             event.preventDefault();
@@ -882,7 +932,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             updateSlideTransform();
         });
-
         interact(zoomPanContainer).draggable({
             onstart: function () {
                 if (currentScale > 1) {
@@ -900,39 +949,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.body.classList.remove('is-panning');
             }
         });
-
         addSafeListener(resetZoomBtn, 'click', () => {
             currentScale = 1;
             slidePosX = 0;
             slidePosY = 0;
             updateSlideTransform();
         });
-
-        // --- LISTENERS PARA ATALHOS DE TECLADO ---
         addSafeListener(document, 'keydown', (event) => {
             const activeEl = document.activeElement;
             const isTyping = activeEl.tagName === 'INPUT' || activeEl.isContentEditable;
-            if (event.code === 'Space') {
-                if (isTyping) return;
-                event.preventDefault();
-                if (!isPanning) {
-                    isPanning = true;
-                    document.body.classList.add('is-panning');
-                }
-                return;
-            }
             if (isTyping) {
                 return;
             }
             switch (event.key) {
                 case 'ArrowLeft':
-                    if (!prevBtn.disabled) { showPrevSlide(); }
+                    if (!prevBtn.disabled) {
+                        showPrevSlide();
+                    }
                     break;
                 case 'ArrowRight':
-                    if (!nextBtn.disabled) { showNextSlide(); }
+                    if (!nextBtn.disabled) {
+                        showNextSlide();
+                    }
                     break;
             }
         });
+
         addSafeListener(document, 'keyup', (event) => {
             if (event.code === 'Space') {
                 isPanning = false;
