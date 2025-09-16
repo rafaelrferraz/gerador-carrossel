@@ -1,202 +1,44 @@
-const API_BASE_URL = 'https://script.google.com/macros/s/AKfycbx1l6QuqWnD4fg0XcUyGlGxnBpItqX5-Uw_fBhk9ov1SvuFTfDrY1Ok2YNlUwqC8wNdig/exec'
-let allRoteiros = [];
-let themeRoteiros = [];
-let currentSlideIndex = 0;
-let snapLines = [];
-
-let selectedElement = null;
-let zIndexCounter = 1;
-
-// Configurações da Cloudinary
-const CLOUDINARY_CLOUD_NAME = 'dh8hpjwlc';
-const CLOUDINARY_UPLOAD_PRESET = 'my-carousel-preset';
-
-// Função para fazer o upload da imagem para a Cloudinary
-async function uploadImageToCloudinary(file) {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-
-    try {
-        const response = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/upload`, {
-            method: 'POST',
-            body: formData,
-        });
-
-        if (!response.ok) {
-            throw new Error('Falha no upload para a Cloudinary.');
-        }
-
-        const data = await response.json();
-        return data.secure_url;
-    } catch (error) {
-        console.error('Erro no upload para a Cloudinary:', error);
-        alert('Erro ao carregar a imagem para a Cloudinary.');
-        return null;
-    }
-}
-
-function createImageElement(imgData) {
-    const slideContent = document.getElementById('slideContent');
-    const container = document.createElement('div');
-    container.className = 'image-container';
-
-    container.style.zIndex = imgData.zIndex || zIndexCounter++;
-    container.style.opacity = imgData.opacity || 1;
-
-    const x = imgData.x || 50, y = imgData.y || 50, rotation = imgData.rotation || 0, width = imgData.width || '200px', height = imgData.height || 'auto';
-    container.style.transform = `translate(${x}px, ${y}px) rotate(${rotation}deg)`;
-    container.style.width = width;
-    container.style.height = height;
-    container.setAttribute('data-x', x);
-    container.setAttribute('data-y', y);
-    container.setAttribute('data-rotation', rotation);
-    container.setAttribute('data-zindex', container.style.zIndex);
-    container.setAttribute('data-is-watermark', imgData.isWatermark || false);
-
-    const img = document.createElement('img');
-    img.src = imgData.src;
-    img.style.width = '100%';
-    img.style.height = '100%';
-    img.style.display = 'block';
-    img.style.pointerEvents = 'none';
-
-    // Remove o botão de rotação apenas para a marca d'água
-    if (!imgData.isWatermark) {
-        const rotateHandle = document.createElement('div');
-        rotateHandle.className = 'rotate-handle';
-        rotateHandle.innerHTML = '↻';
-        rotateHandle.title = 'Arrastar para rotacionar';
-        container.appendChild(rotateHandle);
-    }
-
-    const resizeHandles = [
-        { pos: 'nw', cursor: 'nw-resize', top: '-8px', left: '-8px', symbol: '↖' }, { pos: 'ne', cursor: 'ne-resize', top: '-8px', right: '-8px', symbol: '↗' },
-        { pos: 'sw', cursor: 'sw-resize', bottom: '-8px', left: '-8px', symbol: '↙' }, { pos: 'se', cursor: 'se-resize', bottom: '-8px', right: '-8px', symbol: '↘' }
-    ];
-    resizeHandles.forEach(handle => {
-        const resizeHandle = document.createElement('div');
-        resizeHandle.className = `resize-handle resize-${handle.pos}`;
-        resizeHandle.innerHTML = handle.symbol;
-        resizeHandle.style.cursor = handle.cursor;
-        resizeHandle.title = 'Arrastar para redimensionar';
-        Object.keys(handle).forEach(key => {
-            if (['top', 'right', 'bottom', 'left'].includes(key)) resizeHandle.style[key] = handle[key];
-        });
-        container.appendChild(resizeHandle);
-    });
-    container.appendChild(img);
-    slideContent.appendChild(container);
-
-    let isDragging = false, isResizing = false, isRotating = false;
-    let startPos = { x: 0, y: 0 }, startSize = { width: 0, height: 0 }, startAngle = 0, currentRotation = rotation;
-
-    container.addEventListener('mousedown', (e) => {
-        if (e.target === container || e.target === img) {
-            isDragging = true;
-            startPos.x = e.clientX - (parseFloat(container.getAttribute('data-x')) || 0);
-            startPos.y = e.clientY - (parseFloat(container.getAttribute('data-y')) || 0);
-            e.preventDefault();
-        }
-    });
-
-    container.querySelectorAll('.resize-handle').forEach(handle => {
-        handle.addEventListener('mousedown', (e) => {
-            isResizing = true;
-            isDragging = false;
-            startSize = { width: container.offsetWidth, height: container.offsetHeight };
-            startPos = { x: e.clientX, y: e.clientY };
-            e.preventDefault();
-            e.stopPropagation();
-        });
-    });
-
-    if (!imgData.isWatermark) {
-        container.querySelector('.rotate-handle').addEventListener('mousedown', (e) => {
-            isRotating = true;
-            isDragging = false;
-            const rect = container.getBoundingClientRect();
-            const centerX = rect.left + rect.width / 2, centerY = rect.top + rect.height / 2;
-            startAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX) * 180 / Math.PI;
-            currentRotation = parseFloat(container.getAttribute('data-rotation')) || 0;
-            e.preventDefault();
-            e.stopPropagation();
-        });
-    }
-
-    document.addEventListener('mousemove', (e) => {
-        if (isDragging) {
-            const newX = e.clientX - startPos.x;
-            const newY = e.clientY - startPos.y;
-
-            let finalX = newX;
-            let finalY = newY;
-            const slideWidth = slideContent.clientWidth;
-            const slideHeight = slideContent.clientHeight;
-            const elementWidth = container.offsetWidth;
-            const elementHeight = container.offsetHeight;
-
-            if (imgData.isWatermark) {
-                const snapThreshold = 20;
-                const targetX = (slideWidth - elementWidth) / 2;
-                const targetY = slideHeight - elementHeight + 50;
-
-                if (Math.abs(newX - targetX) < snapThreshold) {
-                    finalX = targetX;
-                }
-                if (Math.abs(newY - targetY) < snapThreshold) {
-                    finalY = targetY;
-                }
-            } else {
-                finalX = newX;
-                finalY = newY;
-            }
-
-            container.style.transform = `translate(${finalX}px, ${finalY}px) rotate(${currentRotation}deg)`;
-            container.setAttribute('data-x', finalX);
-            container.setAttribute('data-y', finalY);
-        } else if (isResizing) {
-            let newWidth = startSize.width + (e.clientX - startPos.x);
-            if (newWidth < 50) newWidth = 50;
-            const aspectRatio = img.naturalWidth && img.naturalHeight ? (img.naturalWidth / img.naturalHeight) : 1;
-            container.style.width = `${newWidth}px`;
-            container.style.height = `${newWidth / aspectRatio}px`;
-        } else if (isRotating) {
-            const rect = container.getBoundingClientRect();
-            const centerX = rect.left + rect.width / 2, centerY = rect.top + rect.height / 2;
-            const currentAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX) * 180 / Math.PI;
-            const newRotation = currentRotation + (currentAngle - startAngle);
-            const x = parseFloat(container.getAttribute('data-x')) || 0, y = parseFloat(container.getAttribute('data-y')) || 0;
-            container.style.transform = `translate(${x}px, ${y}px) rotate(${newRotation}deg)`;
-            container.setAttribute('data-rotation', newRotation);
-        }
-    });
-    document.addEventListener('mouseup', () => {
-        if (isRotating) currentRotation = parseFloat(container.getAttribute('data-rotation')) || 0;
-        isDragging = isResizing = isRotating = false;
-    });
-}
-
-function addMoveHandleToText(element) {
-    if (element.querySelector('.move-handle-text')) return;
-    const moveHandle = document.createElement('div');
-    moveHandle.className = 'move-handle-text';
-    moveHandle.innerHTML = '✥';
-    moveHandle.title = 'Arrastar para mover';
-    element.appendChild(moveHandle);
-}
-
 document.addEventListener('DOMContentLoaded', () => {
-    const themeDropdown = document.getElementById('themeDropdown');
-    const carouselSelectionContainer = document.getElementById('carouselSelectionContainer');
-    const carouselDropdown = document.getElementById('carouselDropdown');
-    const apiStatus = document.getElementById('apiStatus');
-    const carouselContent = document.querySelector('.carousel-content');
-    const slideContent = document.getElementById('slideContent');
+    // === CONSTANTES E VARIÁVEIS GLOBAIS ===
+    const API_BASE_URL = 'https://script.google.com/macros/s/AKfycbx1l6QuqWnD4fg0XcUyGlGxnBpItqX5-Uw_fBhk9ov1SvuFTfDrY1Ok2YNlUwqC8wNdig/exec';
+    const CLOUDINARY_CLOUD_NAME = 'dh8hpjwlc';
+    const CLOUDINARY_UPLOAD_PRESET = 'my-carousel-preset';
+
+    let allRoteiros = [];
+    let themeRoteiros = [];
+    let currentSlideIndex = 0;
+    let activeElement = null;
+    let elementCounter = 0;
+    let isPanning = false;
+
+    // Variáveis para Zoom e Pan
+    let currentScale = 1;
+    let slidePosX = 0;
+    let slidePosY = 0;
+
+    const watermarkData = {
+        clara: 'https://i.imgur.com/aRMubKX.png',
+        escura: 'https://i.imgur.com/1jWGIzV.png'
+    };
+    const colors = {
+        terracota: '#C36640',
+        lightGray: '#F4F4F4',
+        black: '#000000',
+    };
+
+    // === ELEMENTOS DO DOM ===
+    const slideContainer = document.getElementById('slideContainer');
+    const introScreen = document.getElementById('intro-screen');
+    const introThemeDropdown = document.getElementById('introThemeDropdown');
+    const introCarouselDropdown = document.getElementById('introCarouselDropdown');
+    const confirmBtn = document.getElementById('confirmBtn');
+    const topBarsWrapper = document.querySelector('.top-bars-wrapper');
+    const mainElement = document.querySelector('main');
     const prevBtn = document.getElementById('prevBtn');
     const nextBtn = document.getElementById('nextBtn');
     const slideCounter = document.getElementById('slideCounter');
-    const colorPicker = document.getElementById('colorPicker');
+    const themeDropdown = document.getElementById('themeDropdown');
+    const carouselDropdown = document.getElementById('carouselDropdown');
     const boldBtn = document.getElementById('boldBtn');
     const italicBtn = document.getElementById('italicBtn');
     const underlineBtn = document.getElementById('underlineBtn');
@@ -204,6 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const centerAlignBtn = document.getElementById('centerAlignBtn');
     const rightAlignBtn = document.getElementById('rightAlignBtn');
     const justifyBtn = document.getElementById('justifyBtn');
+    const lineHeightSelect = document.getElementById('lineHeightSelect');
     const fontFamilySelect = document.getElementById('fontFamilySelect');
     const fontSizeSelect = document.getElementById('fontSizeSelect');
     const textColorPicker = document.getElementById('textColorPicker');
@@ -211,669 +54,522 @@ document.addEventListener('DOMContentLoaded', () => {
     const sendToBackBtn = document.getElementById('sendToBackBtn');
     const opacitySlider = document.getElementById('opacitySlider');
     const deleteBtn = document.getElementById('deleteBtn');
-    const colorShortcuts = document.querySelectorAll('.color-shortcut');
-    const textColorShortcuts = document.querySelectorAll('.text-color-shortcut');
+    const colorPicker = document.getElementById('colorPicker');
+    const exportPngBtn = document.getElementById('exportPngBtn');
+    const imageUpload = document.getElementById('imageUpload');
     const addSlideBtn = document.getElementById('addSlideBtn');
+    const removeSlideBtn = document.getElementById('removeSlideBtn');
+    const uploadBtn = document.getElementById('uploadBtn');
     const saveBtn = document.getElementById('saveBtn');
-    const formatButtons = [boldBtn, italicBtn, underlineBtn];
-    const alignButtons = [leftAlignBtn, centerAlignBtn, rightAlignBtn, justifyBtn];
-    const defaultTitleFont = 'Aguila Bold', defaultTitleSize = '30px';
-    const defaultBodyFont = 'Aguila', defaultBodySize = '18px';
+    const addTextBtn = document.getElementById('addTextBtn');
+    const resetZoomBtn = document.getElementById('resetZoomBtn');
 
-    function createSnapLines() {
-        document.querySelectorAll('.snap-line').forEach(line => line.remove());
-        snapLines = [];
-        const snapPercents = [0.25, 0.5, 0.75];
-        snapPercents.forEach(p => {
-            const hLine = document.createElement('div');
-            hLine.className = 'snap-line horizontal';
-            hLine.style.top = `${p * slideContent.clientHeight}px`;
-            slideContent.appendChild(hLine);
-            snapLines.push(hLine);
-            const vLine = document.createElement('div');
-            vLine.className = 'snap-line vertical';
-            vLine.style.left = `${p * slideContent.clientWidth}px`;
-            slideContent.appendChild(vLine);
-            snapLines.push(vLine);
-        });
+    // === FUNÇÕES AUXILIARES ===
+    function updateSlideTransform() {
+        slideContainer.style.transform = `translate(${slidePosX}px, ${slidePosY}px) scale(${currentScale})`;
     }
 
-    interact('.editable-text')
-        .draggable({
-            allowFrom: '.move-handle-text',
-            listeners: {
-                start: (event) => {
-                    event.target.contentEditable = 'false';
-                },
-                move: (event) => {
-                    const target = event.target;
-                    let x = (parseFloat(target.getAttribute('data-x')) || 0) + event.dx;
-                    let y = (parseFloat(target.getAttribute('data-y')) || 0) + event.dy;
+    function rgbToHex(rgb) {
+        if (!rgb || !rgb.startsWith('rgb')) return rgb;
+        let sep = rgb.indexOf(",") > -1 ? "," : " ";
+        rgb = rgb.substr(4).split(")")[0].split(sep);
+        let r = (+rgb[0]).toString(16).padStart(2, '0');
+        let g = (+rgb[1]).toString(16).padStart(2, '0');
+        let b = (+rgb[2]).toString(16).padStart(2, '0');
+        return "#" + r + g + b;
+    }
 
-                    const forcaMagnetismo = 0.2;
-                    const centerX = x + target.offsetWidth / 2;
-                    const centerY = y + target.offsetHeight / 2;
-                    const snapThreshold = 15;
-
-                    snapLines.forEach(line => line.classList.remove('visible'));
-
-                    snapLines.forEach(line => {
-                        if (line.classList.contains('vertical')) {
-                            const lineX = parseFloat(line.style.left);
-                            const distanciaX = centerX - lineX;
-                            if (Math.abs(distanciaX) < snapThreshold) {
-                                x -= distanciaX * forcaMagnetismo;
-                                line.classList.add('visible');
-                            }
-                        } else {
-                            const lineY = parseFloat(line.style.top);
-                            const distanciaY = centerY - lineY;
-                            if (Math.abs(distanciaY) < snapThreshold) {
-                                y -= distanciaY * forcaMagnetismo;
-                                line.classList.add('visible');
-                            }
-                        }
-                    });
-
-                    target.style.transform = `translate(${x}px, ${y}px)`;
-                    target.setAttribute('data-x', x);
-                    target.setAttribute('data-y', y);
-                },
-                end: (event) => {
-                    const target = event.target;
-                    setTimeout(() => target.contentEditable = 'true', 100);
-
-                    let x = parseFloat(target.getAttribute('data-x')) || 0;
-                    let y = parseFloat(target.getAttribute('data-y')) || 0;
-                    const centerX = x + target.offsetWidth / 2;
-                    const centerY = y + target.offsetHeight / 2;
-                    const snapThreshold = 15;
-
-                    snapLines.forEach(line => {
-                        if (line.classList.contains('vertical')) {
-                            const lineX = parseFloat(line.style.left);
-                            if (Math.abs(centerX - lineX) < snapThreshold) {
-                                x = lineX - target.offsetWidth / 2;
-                            }
-                        } else {
-                            const lineY = parseFloat(line.style.top);
-                            if (Math.abs(centerY - lineY) < snapThreshold) {
-                                y = lineY - target.offsetHeight / 2;
-                            }
-                        }
-                    });
-                    target.style.transform = `translate(${x}px, ${y}px)`;
-                    target.setAttribute('data-x', x);
-                    target.setAttribute('data-y', y);
-
-                    snapLines.forEach(line => line.classList.remove('visible'));
-                }
-            }
-        })
-        .resizable({
-            edges: { left: true, right: true, bottom: true, top: false },
-            listeners: {
-                move: (event) => {
-                    const target = event.target;
-                    let x = parseFloat(target.getAttribute('data-x')) || 0;
-                    let y = parseFloat(target.getAttribute('data-y')) || 0;
-                    target.style.width = `${event.rect.width}px`;
-                    target.style.height = `${event.rect.height}px`;
-                    x += event.deltaRect.left;
-                    y += event.deltaRect.top;
-                    target.style.transform = `translate(${x}px, ${y}px)`;
-                    target.setAttribute('data-x', x);
-                    target.setAttribute('data-y', y);
-                }
-            }
-        });
-
-    async function fetchThemes() {
-        console.log('Iniciando fetchThemes...');
-        apiStatus.textContent = 'Carregando...'; // Texto inicial de carregamento
-        try {
-            console.log(`Buscando temas na URL: ${API_BASE_URL}?action=getTemas`);
-            const response = await fetch(`${API_BASE_URL}?action=getTemas`);
-
-            if (!response.ok) {
-                console.error(`Erro na rede. Status HTTP: ${response.status} ${response.statusText}`);
-                throw new Error('Erro na rede. Verifique a URL da API.');
-            }
-
-            const data = await response.json();
-            console.log('Resposta da API recebida:', data);
-
-            if (data.status === 'success' && Array.isArray(data.data)) {
-                console.log('Dados recebidos com sucesso. Processando temas...');
-                themeDropdown.innerHTML = '<option value="">Selecione um tema...</option>';
-                data.data.forEach(theme => {
-                    const option = document.createElement('option');
-                    option.value = theme;
-                    option.textContent = theme;
-                    themeDropdown.appendChild(option);
-                });
-                console.log('Temas renderizados. Total de temas:', data.data.length);
-                apiStatus.textContent = 'Conectado ✅';
-                apiStatus.style.color = '#28a745';
-            } else {
-                console.warn('Resposta da API não é um sucesso ou os dados não são um array.');
-                apiStatus.textContent = 'Erro na API ❌';
-                apiStatus.style.color = '#dc3545';
-            }
-        } catch (error) {
-            console.error('Erro de conexão ou ao processar temas:', error);
-            apiStatus.textContent = 'Erro de conexão ❌';
-            apiStatus.style.color = '#dc3545';
+    function isColorDark(rgbColor) {
+        if (!rgbColor) return false;
+        if (rgbColor.startsWith('#')) {
+            let r = 0, g = 0, b = 0;
+            if (rgbColor.length == 4) { r = "0x" + rgbColor[1] + rgbColor[1]; g = "0x" + rgbColor[2] + rgbColor[2]; b = "0x" + rgbColor[3] + rgbColor[3]; }
+            else if (rgbColor.length == 7) { r = "0x" + rgbColor[1] + rgbColor[2]; g = "0x" + rgbColor[3] + rgbColor[4]; b = "0x" + rgbColor[5] + rgbColor[6]; }
+            return (0.2126 * +r + 0.7152 * +g + 0.0722 * +b) < 140;
         }
+        const sep = rgbColor.indexOf(",") > -1 ? "," : " ";
+        const rgb = rgbColor.substr(4).split(")")[0].split(sep);
+        let r = parseInt(rgb[0], 10), g = parseInt(rgb[1], 10), b = parseInt(rgb[2], 10);
+        return (0.2126 * r + 0.7152 * g + 0.0722 * b) < 140;
     }
 
-    async function fetchRoteiros(tema) {
-        carouselContent.classList.add('hidden');
-        carouselSelectionContainer.classList.add('hidden');
-        slideContent.innerHTML = '<h2>Carregando roteiros...</h2>';
-        apiStatus.textContent = 'Carregando roteiros....'; // Texto de carregamento ao buscar carrossel
-        apiStatus.style.color = '#0056b3'; // A cor do "Carregando..." agora é azul
-
-        try {
-            const response = await fetch(`${API_BASE_URL}?action=getRoteiro&tema=${encodeURIComponent(tema)}`);
-            const data = await response.json();
-            if (data.status === 'success' && Array.isArray(data.data) && data.data.length > 0) {
-                themeRoteiros = data.data;
-                if (themeRoteiros.length > 0) {
-                    carouselDropdown.innerHTML = '';
-                    themeRoteiros.forEach((carousel, index) => {
-                        const option = document.createElement('option');
-                        option.value = index;
-                        option.textContent = carousel.title.replace(/<[^>]*>?/gm, '');
-                        carouselDropdown.appendChild(option);
-                    });
-                    carouselSelectionContainer.classList.remove('hidden');
-                    document.querySelector('.editor-toolbar').classList.remove('hidden');
-                    document.querySelector('.color-picker-container').classList.remove('hidden');
-                    apiStatus.textContent = ''; // Texto de conectado ao carregar carrossel
-                    loadRoteiroByIndex(0);
-                } else {
-                    slideContent.innerHTML = '<h2>Nenhum carrossel válido encontrado. Verifique a coluna `carrossel_id` na planilha.</h2>';
-                    apiStatus.textContent = 'Conectado ✅';
-                }
-            } else {
-                slideContent.innerHTML = '<h2>Nenhum roteiro encontrado para este tema.</h2>';
-                themeRoteiros = [];
-                apiStatus.textContent = 'Conectado ✅';
-            }
-        } catch (error) {
-            slideContent.innerHTML = '<h2>Erro de conexão ao buscar roteiro.</h2>';
-            themeRoteiros = [];
-            apiStatus.textContent = 'Erro de conexão ❌';
-        }
-    }
-
-    async function loadRoteiroByIndex(index) {
-        console.log(`Iniciando o carregamento do carrossel no índice: ${index}`);
-        if (!themeRoteiros[index]) {
-            console.error('Erro: Carrossel selecionado não encontrado em themeRoteiros.');
+    // === LÓGICA DE INTERATIVIDADE COM INTERACT.JS ===
+    function dragMoveListener(event) {
+        if (isPanning) {
+            slidePosX += event.dx;
+            slidePosY += event.dy;
+            updateSlideTransform();
             return;
         }
 
-        const carouselSelecionado = themeRoteiros[index];
-        console.log('Carrossel selecionado:', carouselSelecionado);
+        const target = event.target;
+        let x = (parseFloat(target.getAttribute('data-x')) || 0) + event.dx;
+        let y = (parseFloat(target.getAttribute('data-y')) || 0) + event.dy;
+        const angle = parseFloat(target.getAttribute('data-angle')) || 0;
 
-        const carrosselId = carouselSelecionado.slides[0].carrossel_id;
-        const temaGeral = carouselSelecionado.slides[0].tema_geral;
-
-        let slides = [];
-
-        console.log(`Verificando se existe versão editada para o carrosselId: ${carrosselId}`);
-        try {
-            const response = await fetch(`${API_BASE_URL}?action=getEditedRoteiro&carrossel_id=${encodeURIComponent(carrosselId)}`);
-            const data = await response.json();
-
-            console.log('Resposta da API para versão editada:', data);
-
-            if (data.status === 'success' && data.data && data.data.length > 0) {
-                console.log('Versão editada encontrada. Carregando slides editados...');
-                slides = data.data;
-            } else {
-                console.log('Nenhuma versão editada encontrada. Carregando slides originais...');
-                slides = JSON.parse(JSON.stringify(carouselSelecionado.slides));
-
-                if (slides.length > 0 && slides[0].titulo && slides[0].titulo.trim() !== "") {
-                    const originalFirstSlide = slides[0];
-                    const mainTitle = originalFirstSlide.titulo;
-                    const newTitleSlide = {
-                        titulo: mainTitle,
-                        corpo: '',
-                        fechamento: '',
-                        backgroundColor: originalFirstSlide.backgroundColor,
-                        carrossel_id: originalFirstSlide.carrossel_id,
-                        tema_geral: temaGeral
-                    };
-                    originalFirstSlide.titulo = '';
-                    slides.unshift(newTitleSlide);
+        if (target.classList.contains('is-text')) {
+            const snapTargets = [
+                { x: slideContainer.offsetWidth * 0.25, y: slideContainer.offsetHeight * 0.25 },
+                { x: slideContainer.offsetWidth * 0.50, y: slideContainer.offsetHeight * 0.50 },
+                { x: slideContainer.offsetWidth * 0.75, y: slideContainer.offsetHeight * 0.75 },
+            ];
+            const snapThreshold = 3;
+            const targetRect = target.getBoundingClientRect();
+            const containerRect = slideContainer.getBoundingClientRect();
+            const centerX = (targetRect.left - containerRect.left) + (targetRect.width / 2);
+            const centerY = (targetRect.top - containerRect.top) + (targetRect.height / 2);
+            document.querySelectorAll('.snap-line-v, .snap-line-h').forEach(l => l.classList.remove('visible'));
+            for (const snap of snapTargets) {
+                if (Math.abs(centerX - snap.x) < snapThreshold) {
+                    x = x - (centerX - snap.x);
+                    document.getElementById(`snap-v-${Math.round(snap.x / slideContainer.offsetWidth * 100)}`).classList.add('visible');
+                }
+                if (Math.abs(centerY - snap.y) < snapThreshold) {
+                    y = y - (centerY - snap.y);
+                    document.getElementById(`snap-h-${Math.round(snap.y / slideContainer.offsetHeight * 100)}`).classList.add('visible');
                 }
             }
-        } catch (error) {
-            console.error("Erro ao carregar roteiro editado, carregando original:", error);
-            slides = JSON.parse(JSON.stringify(carouselSelecionado.slides));
-            if (slides.length > 0 && slides[0].titulo && slides[0].titulo.trim() !== "") {
-                const originalFirstSlide = slides[0];
-                const mainTitle = originalFirstSlide.titulo;
-                const newTitleSlide = {
-                    titulo: mainTitle,
-                    corpo: '',
-                    fechamento: '',
-                    backgroundColor: originalFirstSlide.backgroundColor,
-                    carrossel_id: originalFirstSlide.carrossel_id,
-                    tema_geral: temaGeral
-                };
-                originalFirstSlide.titulo = '';
-                slides.unshift(newTitleSlide);
+        }
+        else if (target.classList.contains('is-watermark')) {
+            const snapThreshold = 5;
+            const containerWidth = slideContainer.offsetWidth;
+            const elementWidth = target.offsetWidth;
+            const elementCenterX = x + (elementWidth / 2);
+            const containerCenterX = containerWidth / 2;
+            if (Math.abs(elementCenterX - containerCenterX) < snapThreshold) {
+                x = containerCenterX - (elementWidth / 2);
             }
         }
 
-        slides.forEach((slide, i) => {
-            if (!slide.backgroundColor) {
-                slide.backgroundColor = (i % 2 !== 0) ? '#C36640' : '#F4F4F4';
-            }
-
-            // Lógica para o primeiro slide (índice 0)
-            if (i === 0) {
-                // Define a posição vertical e o tamanho da fonte para o título do primeiro slide
-                slide.tituloFontSize = '24px';
-                slide.tituloY = 150;
-            }
-
-            // Lógica para o segundo slide (índice 1), já presente no seu código
-            else if (i === 1 && !slide.corpoFontSize) {
-                slide.corpoFontSize = '20px';
-                slide.corpoX = (540 - 400) / 2;
-                slide.corpoY = ((675 - 200) / 2) - 100;
-
-            }
-        });
-
-        console.log('Slides prontos para renderização:', slides);
-
-        allRoteiros = slides;
-        currentSlideIndex = 0;
-        carouselContent.classList.remove('hidden');
-        renderSlide();
+        target.style.transform = `translate(${x}px, ${y}px) rotate(${angle}deg)`;
+        target.setAttribute('data-x', x);
+        target.setAttribute('data-y', y);
     }
 
+    function dragEndListener() {
+        document.querySelectorAll('.snap-line-v, .snap-line-h').forEach(l => l.classList.remove('visible'));
+    }
+
+    function resizeListener(event) {
+        const target = event.target;
+        let x = (parseFloat(target.getAttribute('data-x')) || 0);
+        let y = (parseFloat(target.getAttribute('data-y')) || 0);
+        const ratio = parseFloat(target.getAttribute('data-ratio'));
+        const angle = parseFloat(target.getAttribute('data-angle')) || 0;
+        let newWidth = event.rect.width;
+        let newHeight = event.rect.height;
+
+        if (ratio) newHeight = newWidth / ratio;
+
+        target.style.width = newWidth + 'px';
+        target.style.height = newHeight + 'px';
+
+        x += event.deltaRect.left;
+        y += event.deltaRect.top;
+        target.style.transform = `translate(${x}px, ${y}px) rotate(${angle}deg)`;
+        target.setAttribute('data-x', x);
+        target.setAttribute('data-y', y);
+    }
+
+    function makeInteractive(target) {
+        interact(target)
+            .draggable({
+                listeners: { move: dragMoveListener, end: dragEndListener },
+                inertia: true,
+            })
+            .resizable({
+                edges: { left: true, right: true, bottom: true, top: true },
+                listeners: { move: resizeListener },
+                modifiers: [interact.modifiers.restrictSize({ min: { width: 50 } })],
+                inertia: false
+            })
+            .on('tap', setActiveElement);
+
+        const rotationHandle = target.querySelector('.rotation-handle');
+        if (rotationHandle) {
+            interact(rotationHandle).draggable({
+                onstart: function (event) {
+                    const rect = target.getBoundingClientRect();
+                    const slideRect = slideContainer.getBoundingClientRect();
+                    target.setAttribute('data-center-x', (rect.left - slideRect.left) + rect.width / 2);
+                    target.setAttribute('data-center-y', (rect.top - slideRect.top) + rect.height / 2);
+                },
+                onmove: function (event) {
+                    const centerX = parseFloat(target.getAttribute('data-center-x'));
+                    const centerY = parseFloat(target.getAttribute('data-center-y'));
+                    const slideRect = slideContainer.getBoundingClientRect();
+                    const clientX = event.clientX - slideRect.left;
+                    const clientY = event.clientY - slideRect.top;
+                    const angle = Math.atan2(clientY - centerY, clientX - centerX);
+                    const x = parseFloat(target.getAttribute('data-x')) || 0;
+                    const y = parseFloat(target.getAttribute('data-y')) || 0;
+                    const newAngle = angle * (180 / Math.PI) + 90;
+                    target.style.transform = `translate(${x}px, ${y}px) rotate(${newAngle}deg)`;
+                    target.setAttribute('data-angle', newAngle);
+                },
+                onend: function (event) {
+                    target.removeAttribute('data-center-x');
+                    target.removeAttribute('data-center-y');
+                }
+            });
+        }
+    }
+
+    function setActiveElement(event) {
+        if (activeElement) {
+            activeElement.classList.remove('selected');
+        }
+        activeElement = event.currentTarget;
+        activeElement.classList.add('selected');
+        updateToolbarState();
+    }
+
+    document.addEventListener('click', function (e) {
+        if (!slideContainer.contains(e.target) && !e.target.closest('.editor-toolbar') && activeElement) {
+            activeElement.classList.remove('selected');
+            activeElement = null;
+            updateToolbarState();
+        }
+    });
+
+    // === RENDERIZAÇÃO E ESTADO ===
+    function saveCurrentSlideContent() {
+        if (currentSlideIndex < 0 || !allRoteiros[currentSlideIndex]) return;
+        const elementsData = [];
+        slideContainer.querySelectorAll('.draggable-item').forEach(el => {
+            const isText = el.classList.contains('is-text');
+            const type = isText ? 'text' : (el.classList.contains('is-watermark') ? 'watermark' : 'image');
+            const elementState = {
+                id: el.id, type: type,
+                x: el.getAttribute('data-x') || 0,
+                y: el.getAttribute('data-y') || 0,
+                angle: el.getAttribute('data-angle') || 0,
+                width: el.style.width,
+                height: el.style.height,
+                content: isText ? el.innerHTML : el.querySelector('img').src,
+                style: el.style.cssText
+            };
+            if (type === 'image') elementState.ratio = el.getAttribute('data-ratio');
+            elementsData.push(elementState);
+        });
+        allRoteiros[currentSlideIndex].slideState = elementsData;
+        allRoteiros[currentSlideIndex].backgroundColor = slideContainer.style.backgroundColor;
+    }
+
+    function createDefaultDOMElements(roteiro, textColor) {
+        // --- PADRÕES DE ESTILO E POSIÇÃO ---
+
+        // --- TÍTULO DO PRIMEIRO SLIDE (CAPA) ---
+        const firstSlideTitlePosX = 35;
+        const firstSlideTitlePosY = 80;
+        const firstSlideTitleFontSize = '20px';
+        const firstSlideTitleFontFamily = 'Cinzel';
+
+        // --- TÍTULOS DOS OUTROS SLIDES (PADRÃO) ---
+        const titlePosX = 35;
+        const titlePosY = 40;
+        const titleFontSize = '20px';
+        const titleFontFamily = 'Aguila Bold';
+
+        // --- CORPO DO TEXTO (PADRÃO) ---
+        const bodyPosX = 35;
+        const bodyPosY = 120;
+        const bodyBoldColor = '#000000';
+        const bodyBoldFontFamily = 'Aguila Bold'; // <-- NOVO: Fonte para o negrito do corpo
+
+        if (roteiro.titulo && roteiro.titulo.trim() !== '') {
+            const titleDiv = document.createElement('div');
+            titleDiv.id = `element-${elementCounter++}`;
+            titleDiv.className = 'draggable-item is-text';
+            titleDiv.setAttribute('contenteditable', 'true');
+            titleDiv.innerHTML = roteiro.titulo;
+            titleDiv.style.color = textColor;
+            titleDiv.style.textAlign = 'center';
+            titleDiv.style.width = '250px';
+
+            if (currentSlideIndex === 0) {
+                titleDiv.style.fontFamily = firstSlideTitleFontFamily;
+                titleDiv.style.fontSize = firstSlideTitleFontSize;
+                titleDiv.setAttribute('data-x', firstSlideTitlePosX);
+                titleDiv.setAttribute('data-y', firstSlideTitlePosY);
+                titleDiv.style.transform = `translate(${firstSlideTitlePosX}px, ${firstSlideTitlePosY}px)`;
+            } else {
+                titleDiv.style.fontFamily = titleFontFamily;
+                titleDiv.style.fontSize = titleFontSize;
+                titleDiv.setAttribute('data-x', titlePosX);
+                titleDiv.setAttribute('data-y', titlePosY);
+                titleDiv.style.transform = `translate(${titlePosX}px, ${titlePosY}px)`;
+            }
+
+            titleDiv.querySelectorAll('b, strong').forEach(boldEl => {
+                boldEl.style.color = textColor;
+            });
+
+            slideContainer.appendChild(titleDiv);
+            makeInteractive(titleDiv);
+        }
+
+        if (roteiro.corpo && roteiro.corpo.trim() !== '') {
+            const bodyDiv = document.createElement('div');
+            bodyDiv.id = `element-${elementCounter++}`;
+            bodyDiv.className = 'draggable-item is-text';
+            bodyDiv.setAttribute('contenteditable', 'true');
+            bodyDiv.innerHTML = roteiro.corpo;
+            bodyDiv.style.fontFamily = 'Aguila';
+            bodyDiv.style.fontSize = '14px';
+            bodyDiv.style.color = textColor;
+            bodyDiv.style.textAlign = 'justify';
+            bodyDiv.style.width = '250px';
+            bodyDiv.setAttribute('data-x', bodyPosX);
+            bodyDiv.setAttribute('data-y', bodyPosY);
+            bodyDiv.style.transform = `translate(${bodyPosX}px, ${bodyPosY}px)`;
+
+            // Aplica a cor e a FONTE especiais para o negrito do corpo
+            bodyDiv.querySelectorAll('b, strong').forEach(boldEl => {
+                boldEl.style.color = bodyBoldColor;
+                boldEl.style.fontFamily = bodyBoldFontFamily; // <-- APLICA A FONTE ESPECIAL
+            });
+
+            slideContainer.appendChild(bodyDiv);
+            makeInteractive(bodyDiv);
+        }
+    }
+
+    function loadState(elementsData) {
+        elementsData.forEach(data => {
+            let el;
+            if (data.type === 'text') {
+                el = document.createElement('div');
+                el.innerHTML = data.content;
+                el.setAttribute('contenteditable', 'true');
+            } else {
+                el = document.createElement('div');
+                const img = document.createElement('img');
+                img.src = data.content;
+                el.appendChild(img);
+                if (data.type === 'image') {
+                    const handle = document.createElement('div');
+                    handle.className = 'rotation-handle';
+                    el.appendChild(handle);
+                }
+            }
+            el.id = data.id || `element-${elementCounter++}`;
+            el.className = `draggable-item ${data.type === 'text' ? 'is-text' : (data.type === 'watermark' ? 'is-watermark' : 'is-image')}`;
+            el.style.cssText = data.style;
+            const angle = data.angle || 0;
+            el.style.transform = `translate(${data.x}px, ${data.y}px) rotate(${angle}deg)`;
+            el.setAttribute('data-x', data.x);
+            el.setAttribute('data-y', data.y);
+            el.setAttribute('data-angle', angle);
+            if (data.type === 'image' && data.ratio) {
+                el.setAttribute('data-ratio', data.ratio);
+            }
+            slideContainer.appendChild(el);
+            makeInteractive(el);
+        });
+    }
 
     function updateWatermark() {
-        const existingWatermark = document.querySelector('[data-is-watermark="true"]');
-        if (existingWatermark) {
-            existingWatermark.remove();
-        }
-
-        const isDarkBackground = slideContent.style.backgroundColor === 'rgb(195, 102, 64)';
-
-        // -------------------------------------------------------------
-        // ATUALIZAÇÃO PARA USAR LINKS DO IMGUR
-        // -------------------------------------------------------------
-        let watermarkSrc;
-
-        if (isDarkBackground) {
-            // A imagem para fundos escuros (slogan_f4f4f4.png)
-            // Substitua o placeholder pelo link da sua imagem no Imgur.
-            watermarkSrc = 'https://i.imgur.com/aRMubKX.png';
-        } else {
-            // A imagem para fundos claros (slogan_c36640.png)
-            // Substitua o placeholder pelo link da sua imagem no Imgur.
-            watermarkSrc = 'https://i.imgur.com/1jWGIzV.png';
-        }
-        // -------------------------------------------------------------
-
-        const slideWidth = slideContent.clientWidth;
-        const slideHeight = slideContent.clientHeight;
-
-        // A dimensão única para ambas as marcas d'água
-        const watermarkWidth = 160
-        const watermarkHeight = 200;
-        const marginBottom = -50;
-
-        const savedWatermarkData = allRoteiros[currentSlideIndex].watermarkData;
-
-        const watermark = {
-            src: watermarkSrc,
-            x: savedWatermarkData ? savedWatermarkData.x : (slideWidth - watermarkWidth) / 2,
-            y: savedWatermarkData ? savedWatermarkData.y : slideHeight - watermarkHeight - marginBottom,
-            width: savedWatermarkData ? savedWatermarkData.width : `${watermarkWidth}px`,
-            height: savedWatermarkData ? savedWatermarkData.height : `${watermarkHeight}px`,
-            opacity: savedWatermarkData ? savedWatermarkData.opacity : 1.0,
-            zIndex: 0,
-            isWatermark: true,
-            rotation: savedWatermarkData ? savedWatermarkData.rotation : 0
-        };
-
-        createImageElement(watermark);
+        let watermarkEl = slideContainer.querySelector('.is-watermark');
+        if (watermarkEl) watermarkEl.remove();
+        const isDark = isColorDark(slideContainer.style.backgroundColor);
+        const watermarkSrc = isDark ? watermarkData.clara : watermarkData.escura;
+        watermarkEl = document.createElement('div');
+        watermarkEl.id = `element-${elementCounter++}`;
+        watermarkEl.className = 'draggable-item is-watermark';
+        const img = document.createElement('img');
+        img.src = watermarkSrc;
+        watermarkEl.appendChild(img);
+        watermarkEl.style.width = '96px';
+        watermarkEl.style.height = 'auto';
+        const posX = 111;
+        const posY = 311;
+        watermarkEl.setAttribute('data-x', posX);
+        watermarkEl.setAttribute('data-y', posY);
+        watermarkEl.style.transform = `translate(${posX}px, ${posY}px)`;
+        slideContainer.appendChild(watermarkEl);
+        makeInteractive(watermarkEl);
     }
 
     function renderSlide() {
-    if (allRoteiros.length === 0) return;
-    zIndexCounter = 1;
-    selectedElement = null;
-    deleteBtn.disabled = true;
-    const roteiro = allRoteiros[currentSlideIndex];
-    slideContent.innerHTML = '';
-    slideContent.style.backgroundColor = roteiro.backgroundColor || '#ffffff';
-    colorPicker.value = roteiro.backgroundColor || '#ffffff';
-    const isDarkBackground = roteiro.backgroundColor === '#C36640';
-    const textColor = isDarkBackground ? '#F4F4F4' : '#C36640';
-    textColorPicker.value = textColor;
-    
-    // --- LÓGICA PARA DETECTAR E AJUSTAR PARA MOBILE ---
-    const isMobileDevice = /Mobi|Android/i.test(navigator.userAgent);
-    
-    // Variáveis de configuração para desktop (padrão)
-    let slideWidth = 540;
-    let slideHeight = 675;
-    let titleFontSize = roteiro.tituloFontSize || '30px';
-    let bodyFontSize = roteiro.corpoFontSize || '18px';
-    let fechamentoFontSize = roteiro.fechamentoFontSize || '18px';
-    let titleY = roteiro.tituloY !== undefined ? roteiro.tituloY : 50;
-    let corpoWidth = roteiro.corpoWidth || '400px';
+        const roteiro = allRoteiros[currentSlideIndex];
+        if (!roteiro) return;
+        slideContainer.innerHTML = '';
+        const snapLinesHTML = `
+            <div class="snap-line-v" id="snap-v-25"></div> <div class="snap-line-v" id="snap-v-50"></div> <div class="snap-line-v" id="snap-v-75"></div>
+            <div class="snap-line-h" id="snap-h-25"></div> <div class="snap-line-h" id="snap-h-50"></div> <div class="snap-line-h" id="snap-h-75"></div>
+        `;
+        slideContainer.innerHTML = snapLinesHTML;
+        elementCounter = 0;
+        const slideGlobalIndex = allRoteiros.findIndex(r => r === roteiro);
+        const isOdd = slideGlobalIndex % 2 !== 0;
+        const defaultBgColor = isOdd ? colors.terracota : colors.lightGray;
+        const finalBgColor = roteiro.backgroundColor || defaultBgColor;
+        slideContainer.style.backgroundColor = finalBgColor;
+        const textColor = isColorDark(finalBgColor) ? colors.lightGray : colors.terracota;
 
-    if (isMobileDevice) {
-        // Ajustes específicos para mobile
-        slideWidth = window.innerWidth * 0.9; // 90% da largura da tela
-        slideHeight = slideWidth * 1.25;      // Mantém a proporção de 4:5
-        titleFontSize = '20px';
-        bodyFontSize = '14px';
-        fechamentoFontSize = '14px';
-        titleY = 30; // Posiciona o título um pouco mais acima
-        corpoWidth = '280px'; // Largura menor para o texto do corpo
-    }
-
-    // Aplica os novos tamanhos ao contêiner do slide
-    slideContent.style.width = `${slideWidth}px`;
-    slideContent.style.height = `${slideHeight}px`;
-    // --- FIM DA LÓGICA PARA MOBILE ---
-
-    const isFirstSlide = currentSlideIndex === 0;
-    const titleFontForThisSlide = isFirstSlide ? 'Cinzel' : 'Aguila Bold';
-    const bodyFontForThisSlide = isFirstSlide ? 'Cinzel' : 'Aguila';
-
-    const exportPreview = document.createElement('div');
-    exportPreview.className = 'export-preview';
-    slideContent.appendChild(exportPreview);
-
-    updateWatermark();
-
-    // Cria e posiciona o título
-    if (roteiro.titulo && roteiro.titulo.trim() !== "") {
-        const tituloEl = document.createElement('h2');
-        tituloEl.classList.add('editable-text', 'slide-titulo');
-        tituloEl.contentEditable = 'true';
-        tituloEl.innerHTML = roteiro.titulo;
-        tituloEl.style.color = textColor;
-        tituloEl.style.fontFamily = titleFontForThisSlide;
-        
-        // Usa a variável de tamanho de fonte otimizada
-        tituloEl.style.fontSize = titleFontSize;
-
-        tituloEl.style.width = roteiro.tituloWidth || corpoWidth; // Usa a largura ajustada
-        tituloEl.style.height = roteiro.tituloHeight || 'auto';
-        tituloEl.style.position = 'absolute';
-        tituloEl.style.zIndex = roteiro.tituloZIndex || zIndexCounter++;
-        tituloEl.style.opacity = roteiro.tituloOpacity || 1;
-        tituloEl.setAttribute('data-zindex', tituloEl.style.zIndex);
-        slideContent.appendChild(tituloEl);
-        addMoveHandleToText(tituloEl);
-
-        const tituloX = roteiro.tituloX !== undefined ? roteiro.tituloX : (slideWidth - tituloEl.offsetWidth) / 2;
-        tituloEl.setAttribute('data-x', tituloX);
-        tituloEl.setAttribute('data-y', titleY); // Usa a posição Y ajustada
-        tituloEl.style.transform = `translate(${tituloX}px, ${titleY}px)`;
-    }
-
-    // Cria e posiciona o corpo do texto
-    if (roteiro.corpo && roteiro.corpo.trim() !== "") {
-        const corpoEl = document.createElement('p');
-        corpoEl.classList.add('editable-text', 'slide-corpo');
-        corpoEl.contentEditable = 'true';
-        corpoEl.innerHTML = roteiro.corpo;
-        corpoEl.style.color = textColor;
-        corpoEl.style.fontFamily = bodyFontForThisSlide;
-        
-        // Usa a variável de tamanho de fonte otimizada
-        corpoEl.style.fontSize = bodyFontSize;
-
-        corpoEl.style.width = corpoWidth; // Usa a largura ajustada
-        corpoEl.style.height = roteiro.corpoHeight || 'auto';
-        corpoEl.style.position = 'absolute';
-        corpoEl.style.textAlign = 'justify';
-        corpoEl.style.zIndex = roteiro.corpoZIndex || zIndexCounter++;
-        corpoEl.style.opacity = roteiro.corpoOpacity || 1;
-        corpoEl.setAttribute('data-zindex', corpoEl.style.zIndex);
-        slideContent.appendChild(corpoEl);
-        addMoveHandleToText(corpoEl);
-
-        const corpoX = roteiro.corpoX !== undefined ? roteiro.corpoX : (slideWidth - corpoEl.offsetWidth) / 2;
-        let corpoY = roteiro.corpoY !== undefined ? roteiro.corpoY : 0;
-
-        // Lógica de posicionamento dinâmico permanece
-        if (corpoY === 0) {
-            const tituloEl = slideContent.querySelector('.slide-titulo');
-            if (tituloEl) {
-                const tituloHeight = tituloEl.offsetHeight;
-                const tituloY = parseFloat(tituloEl.getAttribute('data-y')) || 0;
-                corpoY = tituloY + tituloHeight + (isMobileDevice ? 15 : 30); // Espaçamento menor em mobile
-            } else {
-                corpoY = (slideHeight / 2) - 50;
-            }
-        }
-
-        corpoEl.setAttribute('data-x', corpoX);
-        corpoEl.setAttribute('data-y', corpoY);
-        corpoEl.style.transform = `translate(${corpoX}px, ${corpoY}px)`;
-    }
-
-    // Cria e posiciona o fechamento
-    if (roteiro.fechamento && roteiro.fechamento.trim() !== "") {
-        const fechamentoEl = document.createElement('p');
-        fechamentoEl.classList.add('editable-text', 'slide-fechamento');
-        fechamentoEl.contentEditable = 'true';
-        fechamentoEl.innerHTML = roteiro.fechamento;
-        fechamentoEl.style.color = textColor;
-        fechamentoEl.style.fontFamily = '"Aguila Bold"';
-        
-        // Usa a variável de tamanho de fonte otimizada
-        fechamentoEl.style.fontSize = fechamentoFontSize;
-
-        fechamentoEl.style.width = roteiro.fechamentoWidth || corpoWidth;
-        fechamentoEl.style.height = roteiro.fechamentoHeight || 'auto';
-        fechamentoEl.style.position = 'absolute';
-        fechamentoEl.style.zIndex = roteiro.fechamentoZIndex || zIndexCounter++;
-        fechamentoEl.style.opacity = roteiro.fechamentoOpacity || 1;
-        fechamentoEl.setAttribute('data-zindex', fechamentoEl.style.zIndex);
-        slideContent.appendChild(fechamentoEl);
-        addMoveHandleToText(fechamentoEl);
-
-        const fechamentoX = roteiro.fechamentoX !== undefined ? roteiro.fechamentoX : (slideWidth - fechamentoEl.offsetWidth) / 2;
-        let fechamentoY = roteiro.fechamentoY !== undefined ? roteiro.fechamentoY : 0;
-
-        // Nova lógica de posicionamento dinâmico para o fechamento
-        if (fechamentoY === 0) {
-            const corpoEl = slideContent.querySelector('.slide-corpo');
-            if (corpoEl) {
-                const corpoHeight = corpoEl.offsetHeight;
-                const corpoY = parseFloat(corpoEl.getAttribute('data-y')) || 0;
-                fechamentoY = corpoY + corpoHeight + (isMobileDevice ? 15 : 30);
-            } else {
-                fechamentoY = (slideHeight / 2) + (isMobileDevice ? 30 : 50);
-            }
-        }
-
-        fechamentoEl.setAttribute('data-x', fechamentoX);
-        fechamentoEl.setAttribute('data-y', fechamentoY);
-        fechamentoEl.style.transform = `translate(${fechamentoX}px, ${fechamentoY}px)`;
-    }
-
-    // Carrega as imagens
-    if (roteiro.imagens && Array.isArray(roteiro.imagens)) {
-        roteiro.imagens.forEach(imgData => createImageElement(imgData));
-    }
-
-    slideCounter.textContent = `${currentSlideIndex + 1} / ${allRoteiros.length}`;
-    prevBtn.disabled = currentSlideIndex === 0;
-    nextBtn.disabled = allRoteiros.length <= 1 || currentSlideIndex === allRoteiros.length - 1;
-    updateToolbarState();
-    createSnapLines();
-}
-    function saveCurrentSlideContent() {
-        if (!allRoteiros[currentSlideIndex]) return;
-        const currentRoteiro = allRoteiros[currentSlideIndex];
-        const tituloEl = slideContent.querySelector('h2');
-        const corpoEl = slideContent.querySelector('.slide-corpo');
-        const fechamentoEl = slideContent.querySelector('.slide-fechamento');
-
-        if (tituloEl) {
-            currentRoteiro.titulo = tituloEl.innerHTML;
-            currentRoteiro.tituloX = parseFloat(tituloEl.getAttribute('data-x')) || 0;
-            currentRoteiro.tituloY = parseFloat(tituloEl.getAttribute('data-y')) || 0;
-            currentRoteiro.tituloWidth = tituloEl.style.width;
-            currentRoteiro.tituloHeight = tituloEl.style.height;
-            currentRoteiro.tituloZIndex = tituloEl.style.zIndex;
-            currentRoteiro.tituloOpacity = tituloEl.style.opacity;
+        if (roteiro.slideState && roteiro.slideState.length > 0) {
+            loadState(roteiro.slideState);
         } else {
-            currentRoteiro.titulo = '';
-            currentRoteiro.tituloX = undefined;
-            currentRoteiro.tituloY = undefined;
-            currentRoteiro.tituloWidth = undefined;
-            currentRoteiro.tituloHeight = undefined;
-            currentRoteiro.tituloZIndex = undefined;
-            currentRoteiro.tituloOpacity = undefined;
+            createDefaultDOMElements(roteiro, textColor);
         }
-        if (corpoEl) {
-            currentRoteiro.corpo = corpoEl.innerHTML;
-            currentRoteiro.corpoX = parseFloat(corpoEl.getAttribute('data-x')) || 0;
-            currentRoteiro.corpoY = parseFloat(corpoEl.getAttribute('data-y')) || 0;
-            currentRoteiro.corpoWidth = corpoEl.style.width;
-            currentRoteiro.corpoHeight = corpoEl.style.height;
-            currentRoteiro.corpoZIndex = corpoEl.style.zIndex;
-            currentRoteiro.corpoOpacity = corpoEl.style.opacity;
-        } else {
-            currentRoteiro.corpo = '';
-            currentRoteiro.corpoX = undefined;
-            currentRoteiro.corpoY = undefined;
-            currentRoteiro.corpoWidth = undefined;
-            currentRoteiro.corpoHeight = undefined;
-            currentRoteiro.corpoZIndex = undefined;
-            currentRoteiro.corpoOpacity = undefined;
-        }
-        if (fechamentoEl) {
-            currentRoteiro.fechamento = fechamentoEl.innerHTML;
-            currentRoteiro.fechamentoX = parseFloat(fechamentoEl.getAttribute('data-x')) || 0;
-            currentRoteiro.fechamentoY = parseFloat(fechamentoEl.getAttribute('data-y')) || 0;
-            currentRoteiro.fechamentoWidth = fechamentoEl.style.width;
-            currentRoteiro.fechamentoHeight = fechamentoEl.style.height;
-            currentRoteiro.fechamentoZIndex = fechamentoEl.style.zIndex;
-            currentRoteiro.fechamentoOpacity = fechamentoEl.style.opacity;
-        } else {
-            currentRoteiro.fechamento = '';
-            currentRoteiro.fechamentoX = undefined;
-            currentRoteiro.fechamentoY = undefined;
-            currentRoteiro.fechamentoWidth = undefined;
-            currentRoteiro.fechamentoHeight = undefined;
-            currentRoteiro.fechamentoZIndex = undefined;
-            currentRoteiro.fechamentoOpacity = undefined;
-        }
-        const imageElements = slideContent.querySelectorAll('.image-container');
-        const savedImages = [];
-        imageElements.forEach(imgContainer => {
-            const img = imgContainer.querySelector('img');
-            const isWatermark = imgContainer.getAttribute('data-is-watermark') === 'true';
 
-            const imageData = {
-                src: img.src,
-                x: parseFloat(imgContainer.getAttribute('data-x')) || 0,
-                y: parseFloat(imgContainer.getAttribute('data-y')) || 0,
-                width: imgContainer.style.width,
-                height: imgContainer.style.height,
-                rotation: parseFloat(imgContainer.getAttribute('data-rotation')) || 0,
-                zIndex: imgContainer.style.zIndex,
-                opacity: imgContainer.style.opacity,
-                isWatermark: isWatermark
-            };
-
-            if (isWatermark) {
-                currentRoteiro.watermarkData = imageData;
-            } else {
-                savedImages.push(imageData);
-            }
-        });
-        currentRoteiro.imagens = savedImages;
+        slideCounter.textContent = `${currentSlideIndex + 1} / ${allRoteiros.length}`;
+        prevBtn.disabled = currentSlideIndex === 0;
+        nextBtn.disabled = currentSlideIndex === allRoteiros.length - 1;
+        colorPicker.value = rgbToHex(finalBgColor);
+        activeElement = null;
+        updateToolbarState();
+        updateWatermark();
     }
 
+    // --- API & DADOS ---
+    async function fetchThemes() {
+        const targetDropdowns = [introThemeDropdown, themeDropdown];
+        targetDropdowns.forEach(d => { d.innerHTML = '<option>Carregando...</option>'; d.disabled = true; });
+        try {
+            const res = await fetch(`${API_BASE_URL}?action=getTemas`);
+            if (!res.ok) throw new Error(`Erro de rede: ${res.status}`);
+            const data = await res.json();
+            if (data.status === 'success') {
+                targetDropdowns.forEach(d => {
+                    d.innerHTML = '<option value="" disabled selected>Selecione um tema...</option>';
+                    data.data.forEach(theme => d.innerHTML += `<option value="${theme}">${theme}</option>`);
+                    d.disabled = false;
+                });
+            } else { throw new Error('API retornou status de falha.'); }
+        } catch (err) {
+            console.error('Falha ao buscar temas.', err);
+            targetDropdowns.forEach(d => { d.innerHTML = '<option>Erro ao carregar</option>'; });
+        }
+    }
+
+    async function fetchRoteiros(tema, targetDropdown) {
+        console.log('Buscando roteiros para o tema:', tema);
+        targetDropdown.innerHTML = '<option>Carregando...</option>';
+        targetDropdown.disabled = true;
+        try {
+            const res = await fetch(`${API_BASE_URL}?action=getRoteiro&tema=${encodeURIComponent(tema)}`);
+            if (!res.ok) throw new Error(`Erro de rede: ${res.status}`);
+
+            const data = await res.json();
+            console.log('Resposta da API recebida:', data);
+
+            if (data.status === 'success' && data.data && data.data.length > 0) {
+                themeRoteiros = data.data;
+                console.log('Roteiros armazenados:', themeRoteiros);
+
+                targetDropdown.innerHTML = '<option value="" disabled selected>Selecione um roteiro...</option>';
+                themeRoteiros.forEach((c, i) => {
+                    if (!c.title) {
+                        console.warn('AVISO: Roteiro no índice', i, 'não tem um título (c.title). Roteiro:', c);
+                    }
+                    targetDropdown.innerHTML += `<option value="${i}">${(c.title || `Roteiro Sem Título ${i + 1}`).replace(/<[^>]*>/g, '')}</option>`;
+                });
+                targetDropdown.disabled = false;
+
+                // ==========================================================
+                // NOVA LÓGICA CORRIGIDA:
+                // Se o dropdown da tela inicial foi carregado, mostra o botão.
+                // ==========================================================
+                if (targetDropdown.id === 'introCarouselDropdown') {
+                    confirmBtn.classList.remove('hidden');
+                }
+
+            } else {
+                targetDropdown.innerHTML = '<option>Nenhum roteiro encontrado</option>';
+                // Se não encontrou roteiros, garante que o botão de confirmar esteja escondido
+                if (targetDropdown.id === 'introCarouselDropdown') {
+                    confirmBtn.classList.add('hidden');
+                }
+            }
+        } catch (err) {
+            console.error('Falha CRÍTICA ao buscar roteiros.', err);
+            targetDropdown.innerHTML = '<option>Erro ao carregar</option>';
+        }
+    }
+    async function loadRoteiroByIndex(index) {
+        const carouselOriginal = themeRoteiros[index];
+        if (!carouselOriginal) return;
+
+        const carrosselId = carouselOriginal.slides[0]?.carrossel_id;
+        if (!carrosselId) {
+            console.error("ID do carrossel não encontrado.");
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE_URL}?action=getEditedRoteiro&carrossel_id=${carrosselId}`);
+            const result = await response.json();
+
+            if (result.status === 'success' && result.data) {
+                console.log("Carregando roteiro editado da planilha.");
+                allRoteiros = result.data;
+            } else {
+                console.log("Carregando roteiro original.");
+                allRoteiros = JSON.parse(JSON.stringify(carouselOriginal.slides));
+
+                // --- LÓGICA DO SLIDE DE TÍTULO (CAPA) ---
+                const firstSlide = allRoteiros[0];
+                if (firstSlide && firstSlide.titulo && firstSlide.titulo.trim() !== '') {
+                    const titleSlide = { ...firstSlide, corpo: '', fechamento: '' };
+                    allRoteiros.unshift(titleSlide);
+                    allRoteiros[1].titulo = '';
+                }
+
+                // ==========================================================
+                // NOVA LÓGICA PARA O SLIDE DE FECHAMENTO
+                // ==========================================================
+                const lastSlideData = carouselOriginal.slides[carouselOriginal.slides.length - 1];
+                if (lastSlideData && lastSlideData.fechamento && lastSlideData.fechamento.trim() !== '') {
+                    // Cria um novo slide apenas com o texto de fechamento no corpo
+                    const closingSlide = {
+                        ...lastSlideData,
+                        titulo: '',
+                        corpo: lastSlideData.fechamento
+                    };
+                    allRoteiros.push(closingSlide);
+                }
+            }
+
+        } catch (error) {
+            console.error("Erro ao buscar roteiro editado, carregando original.", error);
+            allRoteiros = JSON.parse(JSON.stringify(carouselOriginal.slides));
+        }
+
+        currentSlideIndex = 0;
+        renderSlide();
+    }
     async function saveEditedRoteiro() {
-        console.log('Botão de salvar clicado. Iniciando processo...');
         saveCurrentSlideContent();
-        const carrosselId = allRoteiros[0].carrossel_id;
-        const slidesToSave = allRoteiros.map((slide, index) => {
-            const savedData = {
-                carrossel_id: slide.carrossel_id,
-                slide_index: index,
-                backgroundColor: slide.backgroundColor,
-                // Salvar textos e estilos
-                titulo: slide.titulo,
-                tituloX: slide.tituloX,
-                tituloY: slide.tituloY,
-                tituloWidth: slide.tituloWidth,
-                tituloHeight: slide.tituloHeight,
-                tituloZIndex: slide.tituloZIndex,
-                tituloOpacity: slide.tituloOpacity,
-                corpo: slide.corpo,
-                corpoX: slide.corpoX,
-                corpoY: slide.corpoY,
-                corpoWidth: slide.corpoWidth,
-                corpoHeight: slide.corpoHeight,
-                corpoZIndex: slide.corpoZIndex,
-                corpoOpacity: slide.corpoOpacity,
-                fechamento: slide.fechamento,
-                fechamentoX: slide.fechamentoX,
-                fechamentoY: slide.fechamentoY,
-                fechamentoWidth: slide.fechamentoWidth,
-                fechamentoHeight: slide.fechamentoHeight,
-                fechamentoZIndex: slide.fechamentoZIndex,
-                fechamentoOpacity: slide.fechamentoOpacity,
-                // Salvar imagens
-                imagens: slide.imagens,
-                watermarkData: slide.watermarkData
-            };
-            return savedData;
-        });
-
-        console.log('Dados do carrossel para salvar:', slidesToSave);
-        console.log('Enviando requisição POST para a API...');
-
+        if (!allRoteiros || allRoteiros.length === 0) {
+            alert('Não há nada para salvar.');
+            return;
+        }
+        console.log("Salvando roteiro:", allRoteiros);
+        const saveBtnIcon = saveBtn.querySelector('i');
+        saveBtnIcon.classList.remove('fa-save');
+        saveBtnIcon.classList.add('fa-spinner', 'fa-spin');
+        saveBtn.disabled = true;
         try {
             const response = await fetch(`${API_BASE_URL}?action=salvarRoteiroEditado`, {
                 method: 'POST',
-                body: JSON.stringify({ carrossel_id: carrosselId, slides: slidesToSave }),
-                headers: { 'Content-Type': 'text/plain' }
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ slides: allRoteiros })
             });
-
-            console.log('Requisição enviada. Aguardando resposta...');
-
-            const data = await response.json();
-
-            console.log('Resposta da API recebida:', data);
-
-            if (data.status === 'success') {
-                alert('Roteiro salvo com sucesso!');
-                console.log('Salvamento concluído com sucesso.');
-            } else {
-                alert('Erro ao salvar o roteiro: ' + data.message);
-                console.error('Erro no salvamento. Mensagem da API:', data.message);
-            }
+            alert('Roteiro salvo com sucesso!');
         } catch (error) {
-            console.error('Erro de conexão ao tentar salvar o roteiro:', error);
-            alert('Erro de conexão ao tentar salvar o roteiro.');
+            console.error('Erro ao salvar:', error);
+            alert('Ocorreu um erro ao tentar salvar o roteiro.');
+        } finally {
+            saveBtnIcon.classList.remove('fa-spinner', 'fa-spin');
+            saveBtnIcon.classList.add('fa-save');
+            saveBtn.disabled = false;
         }
     }
 
+    // --- NAVEGAÇÃO E AÇÕES DE SLIDE ---
     function showPrevSlide() {
         saveCurrentSlideContent();
         if (currentSlideIndex > 0) {
@@ -890,291 +586,362 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Função para adicionar um novo slide
     function addNewSlide() {
         saveCurrentSlideContent();
         const currentRoteiro = allRoteiros[currentSlideIndex];
         const newSlide = {
-            titulo: 'Novo Slide',
-            corpo: '',
-            fechamento: '',
-            backgroundColor: currentRoteiro.backgroundColor,
+            titulo: '', corpo: 'Novo Slide', backgroundColor: null,
             carrossel_id: currentRoteiro.carrossel_id,
-            tema_geral: currentRoteiro.tema_geral
+            tema_geral: currentRoteiro.tema_geral,
+            slideState: null
         };
         allRoteiros.splice(currentSlideIndex + 1, 0, newSlide);
         currentSlideIndex++;
         renderSlide();
     }
 
-    function formatText(command, value = null) {
-        document.execCommand('styleWithCSS', false, false);
-        document.execCommand(command, false, value);
-        updateToolbarState();
-    }
-
-    function updateToolbarState() {
-        const selection = window.getSelection();
-        if (!selection || !selection.rangeCount) return;
-        let element = selection.getRangeAt(0).startContainer;
-        if (element.nodeType === Node.TEXT_NODE) {
-            element = element.parentElement;
-        }
-        if (!element || !slideContent.contains(element)) {
+    function removeCurrentSlide() {
+        if (allRoteiros.length <= 1) {
+            alert('Não é possível remover o único slide.');
             return;
         }
-        formatButtons.forEach(btn => {
-            const command = btn.id.replace('Btn', '');
-            document.queryCommandState(command) ? btn.classList.add('active') : btn.classList.remove('active');
-        });
-        const alignCommands = { leftAlignBtn: 'justifyLeft', centerAlignBtn: 'justifyCenter', rightAlignBtn: 'justifyRight', justifyBtn: 'justifyFull' };
-        alignButtons.forEach(btn => {
-            document.queryCommandState(alignCommands[btn.id]) ? btn.classList.add('active') : btn.classList.remove('active');
-        });
-        const computedStyle = window.getComputedStyle(element);
-        fontFamilySelect.value = computedStyle.fontFamily.replace(/["']/g, '');
-        const rawSize = computedStyle.fontSize;
-        const roundedSize = Math.round(parseFloat(rawSize));
-        fontSizeSelect.value = `${roundedSize}px`;
+        if (confirm('Tem certeza que deseja remover este slide?')) {
+            allRoteiros.splice(currentSlideIndex, 1);
+            if (currentSlideIndex >= allRoteiros.length) {
+                currentSlideIndex = allRoteiros.length - 1;
+            }
+            renderSlide();
+        }
     }
 
-    themeDropdown.addEventListener('change', e => {
-        if (e.target.value) {
-            fetchRoteiros(e.target.value);
-        } else {
-            carouselContent.classList.add('hidden');
-            carouselSelectionContainer.classList.add('hidden');
+    // --- FERRAMENTAS DO EDITOR ---
+    function updateToolbarState() {
+        const textControls = [boldBtn, italicBtn, underlineBtn, leftAlignBtn, centerAlignBtn, rightAlignBtn, justifyBtn, fontFamilySelect, fontSizeSelect, textColorPicker, lineHeightSelect];
+        const generalControls = [deleteBtn, bringToFrontBtn, sendToBackBtn, opacitySlider];
+
+        [...textControls, ...generalControls].forEach(control => control && (control.disabled = !activeElement));
+
+        // O botão de reset do zoom fica sempre ativo
+        if (resetZoomBtn) resetZoomBtn.disabled = false;
+
+        if (!activeElement) {
+            textControls.forEach(control => control && control.classList.remove('active'));
+            return;
         }
-    });
 
-    carouselDropdown.addEventListener('change', (e) => {
-        saveCurrentSlideContent();
-        const selectedIndex = parseInt(e.target.value, 10);
-        loadRoteiroByIndex(selectedIndex);
-    });
-
-    slideContent.addEventListener('click', (e) => {
-        const targetElement = e.target.closest('h2, p, .image-container');
-        if (selectedElement) {
-            selectedElement.classList.remove('element-selected');
+        if (!activeElement.classList.contains('is-text')) {
+            textControls.forEach(control => control.disabled = true);
+            return;
         }
-        if (targetElement && slideContent.contains(targetElement)) {
-            selectedElement = targetElement;
-            selectedElement.classList.add('element-selected');
-            opacitySlider.value = selectedElement.style.opacity || 1;
-            deleteBtn.disabled = false;
-        } else {
-            selectedElement = null;
-            opacitySlider.value = 1;
-            deleteBtn.disabled = true;
-        }
-    });
 
-    deleteBtn.addEventListener('click', () => {
-        if (selectedElement) {
-            if (confirm('Tem certeza que deseja excluir o elemento selecionado?')) {
-                selectedElement.remove();
-                selectedElement = null;
-                deleteBtn.disabled = true;
-            }
-        }
-    });
+        setTimeout(() => {
+            boldBtn.classList.toggle('active', document.queryCommandState('bold'));
+            italicBtn.classList.toggle('active', document.queryCommandState('italic'));
+            underlineBtn.classList.toggle('active', document.queryCommandState('underline'));
 
-    prevBtn.addEventListener('click', showPrevSlide);
-    nextBtn.addEventListener('click', showNextSlide);
-    addSlideBtn.addEventListener('click', addNewSlide);
-    saveBtn.addEventListener('click', saveEditedRoteiro);
+            const styles = window.getComputedStyle(activeElement);
+            leftAlignBtn.classList.toggle('active', styles.textAlign === 'left' || styles.textAlign === 'start');
+            centerAlignBtn.classList.toggle('active', styles.textAlign === 'center');
+            rightAlignBtn.classList.toggle('active', styles.textAlign === 'right' || styles.textAlign === 'end');
+            justifyBtn.classList.toggle('active', styles.textAlign === 'justify');
 
-    colorPicker.addEventListener('change', e => {
-        if (allRoteiros[currentSlideIndex]) {
-            allRoteiros[currentSlideIndex].backgroundColor = e.target.value;
-            slideContent.style.backgroundColor = e.target.value;
-            updateWatermark();
-        }
-    });
+            // --- LÓGICA DA FONTE CORRIGIDA ---
+            // Pega o nome da fonte no ponto da seleção e remove aspas
+            const selectionFont = document.queryCommandValue('fontName').replace(/['"]/g, '');
+            // Usa a fonte da seleção, ou a fonte do bloco inteiro como fallback
+            fontFamilySelect.value = selectionFont || styles.fontFamily.replace(/['"]/g, '');
+            // --- FIM DA CORREÇÃO ---
 
-    boldBtn.addEventListener('click', () => formatText('bold'));
-    italicBtn.addEventListener('click', () => formatText('italic'));
-    underlineBtn.addEventListener('click', () => formatText('underline'));
-    leftAlignBtn.addEventListener('click', () => formatText('justifyLeft'));
-    centerAlignBtn.addEventListener('click', () => formatText('justifyCenter'));
-    rightAlignBtn.addEventListener('click', () => formatText('justifyRight'));
-    justifyBtn.addEventListener('click', () => formatText('justifyFull'));
-    fontFamilySelect.addEventListener('change', e => formatText('fontName', e.target.value));
+            fontSizeSelect.value = parseInt(styles.fontSize, 10);
 
-    // Lógica para os atalhos de cor de fundo
-    colorShortcuts.forEach(button => {
-        button.addEventListener('click', (e) => {
-            const color = e.currentTarget.dataset.color;
-            slideContent.style.backgroundColor = color;
-            colorPicker.value = color;
-            if (allRoteiros[currentSlideIndex]) {
-                allRoteiros[currentSlideIndex].backgroundColor = color;
-            }
-            updateWatermark();
-        });
-    });
-
-    textColorPicker.addEventListener('input', e => {
-        const value = e.target.value;
-        if (window.getSelection().rangeCount) {
-            document.execCommand('foreColor', false, value);
-        }
-    });
-
-    // Lógica para os atalhos de cor de texto
-    textColorShortcuts.forEach(button => {
-        button.addEventListener('click', (e) => {
-            const color = e.currentTarget.dataset.color;
-            if (window.getSelection().rangeCount) {
-                document.execCommand('foreColor', false, color);
-            }
-        });
-    });
-
-    fontSizeSelect.addEventListener('change', e => {
-        const newSize = e.target.value;
-        if (!newSize) return;
-        const selection = window.getSelection();
-        if (selection && selection.rangeCount > 0) {
-            const range = selection.getRangeAt(0);
-            const span = document.createElement('span');
-            span.style.fontSize = newSize;
-            if (!range.collapsed) {
-                try {
-                    range.surroundContents(span);
-                } catch (err) {
-                    document.execCommand('fontSize', false, '1');
-                    const fontElements = document.activeElement.getElementsByTagName('font');
-                    for (let el of fontElements) {
-                        if (el.size === "1") {
-                            el.style.fontSize = newSize;
-                            el.removeAttribute('size');
-                        }
-                    }
+            const computedLineHeight = styles.lineHeight;
+            if (computedLineHeight === 'normal') {
+                lineHeightSelect.value = '1.2';
+            } else {
+                const lineHeightValue = parseFloat(computedLineHeight);
+                const fontSizeValue = parseFloat(styles.fontSize);
+                if (fontSizeValue > 0) {
+                    const finalRatio = (lineHeightValue / fontSizeValue).toFixed(1);
+                    lineHeightSelect.value = finalRatio;
                 }
             }
-            setTimeout(updateToolbarState, 50);
-        }
-    });
 
+            const selectionColor = document.queryCommandValue('foreColor');
+            textColorPicker.value = rgbToHex(selectionColor);
+            opacitySlider.value = styles.opacity;
+        }, 10);
+    }
 
-    textColorPicker.addEventListener('input', e => {
-        const value = e.target.value;
-        if (window.getSelection().rangeCount) document.execCommand('foreColor', false, value);
-    });
-
-    slideContent.addEventListener('mouseup', updateToolbarState);
-    slideContent.addEventListener('keyup', updateToolbarState);
-
-    bringToFrontBtn.addEventListener('click', () => {
-        if (selectedElement) {
-            selectedElement.style.zIndex = zIndexCounter++;
-            selectedElement.setAttribute('data-zindex', selectedElement.style.zIndex);
-        }
-    });
-
-    sendToBackBtn.addEventListener('click', () => {
-        if (selectedElement) {
-            selectedElement.style.zIndex = 0;
-            selectedElement.setAttribute('data-zindex', 0);
-        }
-    });
-
-    opacitySlider.addEventListener('input', (e) => {
-        if (selectedElement) {
-            selectedElement.style.opacity = e.target.value;
-        }
-    });
-
-    const imageUpload = document.getElementById('imageUpload');
-    const uploadBtn = document.getElementById('uploadBtn');
-    uploadBtn.addEventListener('click', () => imageUpload.click());
-
-    // NOVO CÓDIGO PARA UPLOAD PARA A CLOUDINARY
-    imageUpload.addEventListener('change', async (e) => {
-        const file = e.target.files[0];
-        if (file && file.type.startsWith('image/')) {
-            // Exibe uma mensagem de carregamento enquanto a imagem é enviada
-            //alert('Enviando imagem para a Cloudinary...');
-
-            const imageUrl = await uploadImageToCloudinary(file);
-
-            if (imageUrl) {
-                // Se o upload for bem-sucedido, cria o elemento da imagem com a URL da Cloudinary
-                createImageElement({ src: imageUrl });
-                //  alert('Imagem carregada com sucesso!');
-            }
-        }
-        e.target.value = ''; // Limpa o input para permitir uploads do mesmo arquivo
-    });
-
-    async function exportSlideAsPNG() {
-        if (selectedElement) {
-            selectedElement.classList.remove('element-selected');
-            selectedElement = null;
-        }
-        const options = {
-            backgroundColor: slideContent.style.backgroundColor || '#ffffff',
-            width: 540, height: 675, scale: 2, useCORS: true,
-            allowTaint: false, foreignObjectRendering: false,
-            removeContainer: true, imageTimeout: 0, logging: false
-        };
-        try {
-            const snapLines = slideContent.querySelectorAll('.snap-line');
-            snapLines.forEach(line => line.style.display = 'none');
-            const editableElements = slideContent.querySelectorAll('h2[contenteditable="true"], p[contenteditable="true"]');
-            const originalBorders = [];
-            editableElements.forEach((el, index) => {
-                originalBorders[index] = el.style.border;
-                el.style.border = 'none';
-                el.blur();
-            });
-            const imageContainers = slideContent.querySelectorAll('.image-container');
-            imageContainers.forEach(container => container.style.outline = 'none');
-            const originalSlideBorder = slideContent.style.border;
-            slideContent.style.border = 'none';
-            const allHandles = slideContent.querySelectorAll('.rotate-handle, .resize-handle, .move-handle-text');
-            allHandles.forEach(handle => handle.style.display = 'none');
-            const exportPreview = document.querySelector('.export-preview');
-            exportPreview.style.display = 'none';
-
-            const canvas = await html2canvas(slideContent, options);
-
-            slideContent.style.border = originalSlideBorder;
-            snapLines.forEach(line => line.style.display = '');
-            editableElements.forEach((el, index) => el.style.border = originalBorders[index]);
-            allHandles.forEach(handle => handle.style.display = '');
-            exportPreview.style.display = 'block';
-
-            const now = new Date();
-            const timestamp = now.toISOString().slice(0, 19).replace(/[:-]/g, '').replace('T', '_');
-            const fileName = `slide_${currentSlideIndex + 1}_${timestamp}.png`;
-            canvas.toBlob((blob) => {
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = fileName;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-                const btn = document.getElementById('exportPngBtn');
-                btn.innerHTML = '✅ Exportado!';
-                btn.style.backgroundColor = '#28a745';
-                setTimeout(() => {
-                    if (btn) {
-                        btn.innerHTML = '<i class="fas fa-file-arrow-down"></i>';
-                        btn.style.backgroundColor = '';
-                    }
-                }, 2000);
-            }, 'image/png', 1.0);
-        } catch (error) {
-            console.error('Erro ao exportar PNG:', error);
-            alert('Erro ao exportar o slide. Tente novamente.');
+    function applyFormat(command) {
+        if (activeElement && activeElement.getAttribute('contenteditable') === 'true') {
+            document.execCommand(command, false, null);
+            activeElement.focus();
+            updateToolbarState();
         }
     }
-    document.getElementById('exportPngBtn').addEventListener('click', exportSlideAsPNG);
 
+    function setStyle(property, value) {
+        if (activeElement) {
+            activeElement.style[property] = value;
+            updateToolbarState();
+        }
+    }
+
+    function addNewTextBox() {
+        const newText = document.createElement('div');
+        newText.id = `element-${elementCounter++}`;
+        newText.className = 'draggable-item is-text';
+        newText.setAttribute('contenteditable', 'true');
+        newText.innerHTML = "Novo Texto";
+        newText.style.width = '280px';
+        newText.style.height = '80px';
+        newText.style.fontFamily = 'Aguila';
+        newText.style.fontSize = '16px';
+        const posX = 20;
+        const posY = 50;
+        newText.setAttribute('data-x', posX);
+        newText.setAttribute('data-y', posY);
+        newText.style.transform = `translate(${posX}px, ${posY}px)`;
+        slideContainer.appendChild(newText);
+        makeInteractive(newText);
+        setActiveElement({ currentTarget: newText });
+    }
+
+    function exportSlideAsPNG() {
+        if (activeElement) {
+            activeElement.classList.remove('selected');
+            activeElement = null;
+        }
+        html2canvas(slideContainer, {
+            scale: 4,
+            useCORS: true,
+            backgroundColor: null
+        }).then(canvas => {
+            const link = document.createElement('a');
+            link.download = `slide_${currentSlideIndex + 1}_exportado.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        });
+    }
+
+    // === SETUP DE EVENTOS DO DOM ===
+    function setupEventListeners() {
+        const addSafeListener = (el, event, handler) => {
+            if (el) el.addEventListener(event, handler);
+        };
+        addSafeListener(introThemeDropdown, 'change', e => { confirmBtn.classList.add('hidden'); fetchRoteiros(e.target.value, introCarouselDropdown); });
+        addSafeListener(introCarouselDropdown, 'change', e => loadRoteiroByIndex(parseInt(e.target.value, 10)));
+        addSafeListener(confirmBtn, 'click', () => {
+            const idx = parseInt(introCarouselDropdown.value, 10);
+            if (!isNaN(idx) && themeRoteiros[idx]) {
+                themeDropdown.value = introThemeDropdown.value;
+                carouselDropdown.innerHTML = introCarouselDropdown.innerHTML;
+                carouselDropdown.value = introCarouselDropdown.value;
+                topBarsWrapper.classList.remove('hidden');
+                mainElement.classList.remove('hidden');
+                introScreen.classList.add('hidden');
+                loadRoteiroByIndex(idx);
+            }
+        });
+        addSafeListener(themeDropdown, 'change', e => fetchRoteiros(e.target.value, carouselDropdown));
+        addSafeListener(carouselDropdown, 'change', e => loadRoteiroByIndex(parseInt(e.target.value, 10)));
+        addSafeListener(prevBtn, 'click', showPrevSlide);
+        addSafeListener(nextBtn, 'click', showNextSlide);
+        addSafeListener(addSlideBtn, 'click', addNewSlide);
+        addSafeListener(removeSlideBtn, 'click', removeCurrentSlide);
+        addSafeListener(exportPngBtn, 'click', exportSlideAsPNG);
+        addSafeListener(uploadBtn, 'click', () => imageUpload.click());
+        addSafeListener(saveBtn, 'click', saveEditedRoteiro);
+        addSafeListener(addTextBtn, 'click', addNewTextBox);
+        addSafeListener(imageUpload, 'change', async (e) => {
+            const file = e.target.files?.[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function (event) {
+                    const imageUrl = event.target.result;
+                    const tempImg = new Image();
+                    tempImg.onload = () => {
+                        const ratio = tempImg.naturalWidth / tempImg.naturalHeight;
+                        const initialWidth = 150;
+                        const imgContainer = document.createElement('div');
+                        imgContainer.id = `element-${elementCounter++}`;
+                        imgContainer.className = 'draggable-item is-image';
+                        const img = document.createElement('img');
+                        img.src = imageUrl;
+                        imgContainer.appendChild(img);
+                        const handle = document.createElement('div');
+                        handle.className = 'rotation-handle';
+                        imgContainer.appendChild(handle);
+                        imgContainer.style.width = initialWidth + 'px';
+                        imgContainer.style.height = (initialWidth / ratio) + 'px';
+                        imgContainer.setAttribute('data-ratio', ratio);
+                        imgContainer.setAttribute('data-x', '50');
+                        imgContainer.setAttribute('data-y', '50');
+                        imgContainer.style.transform = `translate(50px, 50px)`;
+                        slideContainer.appendChild(imgContainer);
+                        makeInteractive(imgContainer);
+                    };
+                    tempImg.src = imageUrl;
+                };
+                reader.readAsDataURL(file);
+                e.target.value = '';
+            }
+        });
+        addSafeListener(boldBtn, 'click', () => applyFormat('bold'));
+        addSafeListener(italicBtn, 'click', () => applyFormat('italic'));
+        addSafeListener(underlineBtn, 'click', () => applyFormat('underline'));
+        addSafeListener(leftAlignBtn, 'click', () => setStyle('textAlign', 'left'));
+        addSafeListener(centerAlignBtn, 'click', () => setStyle('textAlign', 'center'));
+        addSafeListener(rightAlignBtn, 'click', () => setStyle('textAlign', 'right'));
+        addSafeListener(justifyBtn, 'click', () => setStyle('textAlign', 'justify'));
+        addSafeListener(fontFamilySelect, 'change', e => setStyle('fontFamily', e.target.value));
+        addSafeListener(fontSizeSelect, 'change', e => setStyle('fontSize', e.target.value + 'px'));
+        addSafeListener(lineHeightSelect, 'change', e => setStyle('lineHeight', e.target.value));
+        addSafeListener(textColorPicker, 'input', e => {
+            if (activeElement && activeElement.getAttribute('contenteditable') === 'true') {
+                activeElement.focus();
+                document.execCommand('foreColor', false, e.target.value);
+            }
+        });
+        addSafeListener(opacitySlider, 'input', e => setStyle('opacity', e.target.value));
+        addSafeListener(bringToFrontBtn, 'click', () => {
+            if (activeElement) {
+                const zIndexes = Array.from(slideContainer.querySelectorAll('.draggable-item:not(.selected)')).map(el => parseInt(el.style.zIndex, 10) || 0);
+                const maxZ = zIndexes.length > 0 ? Math.max(...zIndexes) : 0;
+                activeElement.style.zIndex = maxZ + 1;
+            }
+        });
+        addSafeListener(sendToBackBtn, 'click', () => {
+            if (activeElement) {
+                const otherElements = slideContainer.querySelectorAll('.draggable-item:not(.selected)');
+                otherElements.forEach(el => {
+                    const currentZ = parseInt(el.style.zIndex, 10) || 0;
+                    el.style.zIndex = currentZ + 1;
+                });
+                activeElement.style.zIndex = 0;
+            }
+        });
+        addSafeListener(deleteBtn, 'click', () => {
+            if (activeElement) {
+                activeElement.remove();
+                activeElement = null;
+                updateToolbarState();
+            }
+        });
+        addSafeListener(colorPicker, 'input', e => {
+            slideContainer.style.backgroundColor = e.target.value;
+            updateWatermark();
+        });
+        document.querySelectorAll('.color-shortcut').forEach(btn => {
+            addSafeListener(btn, 'click', e => {
+                const color = e.currentTarget.dataset.color;
+                colorPicker.value = color;
+                slideContainer.style.backgroundColor = color;
+                updateWatermark();
+            });
+        });
+        document.querySelectorAll('.text-color-shortcut').forEach(btn => {
+            addSafeListener(btn, 'click', e => {
+                const color = e.currentTarget.dataset.color;
+                textColorPicker.value = color;
+                if (activeElement && activeElement.getAttribute('contenteditable') === 'true') {
+                    activeElement.focus();
+                    document.execCommand('foreColor', false, color);
+                }
+            });
+        });
+        addSafeListener(document, 'selectionchange', () => {
+            if (document.activeElement && document.activeElement.getAttribute('contenteditable')) {
+                setActiveElement({ currentTarget: document.activeElement });
+            }
+        });
+
+        // --- LISTENERS PARA ZOOM E PAN ---
+        const zoomPanContainer = document.getElementById('zoom-pan-container');
+        addSafeListener(zoomPanContainer, 'wheel', (event) => {
+            event.preventDefault();
+            const rect = zoomPanContainer.getBoundingClientRect();
+            const mouseX = event.clientX - rect.left;
+            const mouseY = event.clientY - rect.top;
+            const zoomIntensity = 0.05;
+            const wheel = event.deltaY < 0 ? 1 : -1;
+            const scrollZoomFactor = Math.exp(wheel * zoomIntensity);
+            const minScale = 1;
+            const maxScale = 5;
+            const prevSlidePosX = slidePosX;
+            const prevSlidePosY = slidePosY;
+            const oldScale = currentScale;
+            currentScale = Math.max(minScale, Math.min(maxScale, oldScale * scrollZoomFactor));
+            if (currentScale === 1) {
+                slidePosX = 0;
+                slidePosY = 0;
+            } else {
+                const actualZoomFactor = currentScale / oldScale;
+                slidePosX = mouseX - (mouseX - prevSlidePosX) * actualZoomFactor;
+                slidePosY = mouseY - (mouseY - prevSlidePosY) * actualZoomFactor;
+            }
+            updateSlideTransform();
+        });
+
+        interact(zoomPanContainer).draggable({
+            onstart: function () {
+                if (currentScale > 1) {
+                    document.body.classList.add('is-panning');
+                }
+            },
+            onmove: function (event) {
+                if (currentScale > 1) {
+                    slidePosX += event.dx;
+                    slidePosY += event.dy;
+                    updateSlideTransform();
+                }
+            },
+            onend: function () {
+                document.body.classList.remove('is-panning');
+            }
+        });
+
+        addSafeListener(resetZoomBtn, 'click', () => {
+            currentScale = 1;
+            slidePosX = 0;
+            slidePosY = 0;
+            updateSlideTransform();
+        });
+
+        // --- LISTENERS PARA ATALHOS DE TECLADO ---
+        addSafeListener(document, 'keydown', (event) => {
+            const activeEl = document.activeElement;
+            const isTyping = activeEl.tagName === 'INPUT' || activeEl.isContentEditable;
+            if (event.code === 'Space') {
+                if (isTyping) return;
+                event.preventDefault();
+                if (!isPanning) {
+                    isPanning = true;
+                    document.body.classList.add('is-panning');
+                }
+                return;
+            }
+            if (isTyping) {
+                return;
+            }
+            switch (event.key) {
+                case 'ArrowLeft':
+                    if (!prevBtn.disabled) { showPrevSlide(); }
+                    break;
+                case 'ArrowRight':
+                    if (!nextBtn.disabled) { showNextSlide(); }
+                    break;
+            }
+        });
+        addSafeListener(document, 'keyup', (event) => {
+            if (event.code === 'Space') {
+                isPanning = false;
+                document.body.classList.remove('is-panning');
+            }
+        });
+    }
+
+    // --- INICIALIZAÇÃO DA APLICAÇÃO ---
+    setupEventListeners();
     fetchThemes();
-});
+})
