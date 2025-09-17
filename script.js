@@ -16,15 +16,13 @@ document.addEventListener('DOMContentLoaded', () => {
     let slidePosX = 0;
     let slidePosY = 0;
 
-    const watermarkData = {
-        clara: 'https://i.imgur.com/aRMubKX.png',
-        escura: 'https://i.imgur.com/1jWGIzV.png'
-    };
-    const colors = {
-        terracota: '#C36640',
-        lightGray: '#F4F4F4',
-        black: '#000000',
-    };
+    // --- NOVO: Variáveis para o Histórico (Undo/Redo) ---
+    let history = [];
+    let historyIndex = -1;
+    const MAX_HISTORY_STATES = 50; // Limite de ações no histórico
+
+    const watermarkData = { clara: 'https://i.imgur.com/aRMubKX.png', escura: 'https://i.imgur.com/1jWGIzV.png' };
+    const colors = { terracota: '#C36640', lightGray: '#F4F4F4', black: '#000000' };
 
     // === ELEMENTOS DO DOM ===
     const slideContainer = document.getElementById('slideContainer');
@@ -64,6 +62,262 @@ document.addEventListener('DOMContentLoaded', () => {
     const addTextBtn = document.getElementById('addTextBtn');
     const resetZoomBtn = document.getElementById('resetZoomBtn');
 
+    // === FUNÇÕES DE HISTÓRICO (UNDO/REDO) ===
+    function saveState() {
+        const elementsData = [];
+        slideContainer.querySelectorAll('.draggable-item').forEach(el => elementsData.push(getElementState(el)));
+        const currentState = {
+            elements: elementsData,
+            backgroundColor: slideContainer.style.backgroundColor
+        };
+        if (historyIndex < history.length - 1) {
+            history = history.slice(0, historyIndex + 1);
+        }
+        history.push(JSON.stringify(currentState));
+        if (history.length > MAX_HISTORY_STATES) {
+            history.shift();
+        }
+        historyIndex = history.length - 1;
+    }
+
+    function loadStateFromHistory(stateString) {
+        if (!stateString) return;
+        const state = JSON.parse(stateString);
+        slideContainer.innerHTML = '';
+        const snapLinesHTML = `<div class="snap-line-v" id="snap-v-25"></div><div class="snap-line-v" id="snap-v-50"></div><div class="snap-line-v" id="snap-v-75"></div><div class="snap-line-h" id="snap-h-25"></div><div class="snap-line-h" id="snap-h-50"></div><div class="snap-line-h" id="snap-h-75"></div>`;
+        slideContainer.innerHTML = snapLinesHTML;
+        slideContainer.style.backgroundColor = state.backgroundColor;
+        loadState(state.elements);
+        updateWatermark();
+    }
+
+    function undo() {
+        if (historyIndex > 0) {
+            historyIndex--;
+            loadStateFromHistory(history[historyIndex]);
+        }
+    }
+
+    function redo() {
+        if (historyIndex < history.length - 1) {
+            historyIndex++;
+            loadStateFromHistory(history[historyIndex]);
+        }
+    }
+
+    // === FUNÇÕES DE COPIAR/COLAR UNIFICADO ===
+    function getElementState(element) {
+        if (!element) return null;
+        const isText = element.classList.contains('is-text');
+        const type = isText ? 'text' : (element.classList.contains('is-watermark') ? 'watermark' : 'image');
+        const state = {
+            type: type,
+            id: element.id,
+            x: parseFloat(element.getAttribute('data-x')) || 0,
+            y: parseFloat(element.getAttribute('data-y')) || 0,
+            angle: parseFloat(element.getAttribute('data-angle')) || 0,
+            width: element.style.width,
+            height: element.style.height,
+            content: isText ? element.innerHTML : element.querySelector('img').src,
+            style: element.style.cssText
+        };
+        if (type === 'image') state.ratio = element.getAttribute('data-ratio');
+        return state;
+    }
+
+    function createElementFromState(state) {
+        let el;
+        if (state.type === 'text') {
+            el = document.createElement('div');
+            el.innerHTML = state.content;
+            el.setAttribute('contenteditable', 'true');
+        } else {
+            el = document.createElement('div');
+            const img = document.createElement('img');
+            img.src = state.content;
+            el.appendChild(img);
+            if (state.type === 'image') {
+                const handle = document.createElement('div');
+                handle.className = 'rotation-handle';
+                el.appendChild(handle);
+            }
+        }
+        el.id = state.id || `element-${elementCounter++}`;
+        el.className = `draggable-item ${state.type === 'text' ? 'is-text' : (state.type === 'watermark' ? 'is-watermark' : 'is-image')}`;
+        el.style.cssText = state.style;
+        el.style.transform = `translate(${state.x}px, ${state.y}px) rotate(${state.angle}deg)`;
+        el.setAttribute('data-x', state.x);
+        el.setAttribute('data-y', state.y);
+        el.setAttribute('data-angle', state.angle);
+        if (state.type === 'image' && state.ratio) el.setAttribute('data-ratio', state.ratio);
+        slideContainer.appendChild(el);
+        makeInteractive(el);
+        return el;
+    }
+
+    // --- INÍCIO DAS MODIFICAÇÕES NO CLIPBOARD ---
+
+    /**
+     * CENÁRIOS 3, 4 (parte de cópia) e 5 (cópia)
+     * Gerencia o que acontece quando o usuário pressiona Ctrl+C.
+     * Distingue entre copiar uma seleção de texto e copiar um elemento inteiro.
+     */
+    async function handleCopy(event) {
+        const selection = window.getSelection();
+        const isTextSelected = selection && selection.toString().trim().length > 0;
+
+        // Se há texto selecionado dentro de um elemento editável, permite a cópia padrão do navegador.
+        if (isTextSelected) {
+             // Deixa o navegador copiar o texto selecionado para o clipboard do sistema.
+            return;
+        }
+
+        // Se não há texto selecionado, mas um elemento está ativo (cenário 5).
+        if (activeElement) {
+            event.preventDefault(); // Impede a ação padrão para copiar o elemento inteiro.
+            const state = getElementState(activeElement);
+            if (state) {
+                // Salva o estado do elemento em um clipboard interno (sessionStorage).
+                const clipboardData = { type: 'MyEditorClipboardData', data: state };
+                sessionStorage.setItem('myEditorClipboard', JSON.stringify(clipboardData));
+            }
+        }
+    }
+
+    /**
+     * CENÁRIOS 1, 2, 3, 4 e 5 (parte de colar)
+     * Gerencia o que acontece quando o usuário pressiona Ctrl+V.
+     * Distingue entre colar texto dentro de um elemento ou criar um novo elemento.
+     */
+    async function handlePasteFromEvent(event) {
+        // CENÁRIO: Colar DENTRO de um bloco de texto existente.
+        if (document.activeElement && document.activeElement.isContentEditable) {
+            // Impede a ação padrão do navegador para controlar a colagem.
+            event.preventDefault();
+            // Pega o conteúdo do clipboard como TEXTO PURO.
+            const text = (event.clipboardData || window.clipboardData).getData('text/plain');
+            // Insere o texto puro na posição do cursor, sem trazer nenhum estilo junto.
+            if (text) {
+                document.execCommand('insertText', false, text);
+            }
+            return; // Encerra a função aqui, pois o caso já foi tratado.
+        }
+
+        // Se o código chegou até aqui, a colagem não é dentro de uma caixa de texto.
+        // Impede a ação padrão para poder criar um novo elemento (imagem ou texto).
+        event.preventDefault();
+
+        // Tenta colar o elemento inteiro do nosso clipboard interno primeiro (CENÁRIO 5).
+        const internalClipboardData = sessionStorage.getItem('myEditorClipboard');
+        if (internalClipboardData) {
+            try {
+                const clipboardContent = JSON.parse(internalClipboardData);
+                if (clipboardContent && clipboardContent.type === 'MyEditorClipboardData') {
+                    const state = clipboardContent.data;
+                    state.id = `element-${elementCounter++}`; // Novo ID
+                    state.x += 20; // Desloca para não sobrepor
+                    state.y += 20;
+
+                    // Remove a propriedade de cor de fundo para o caso de colar o elemento inteiro.
+                    if (state.style) {
+                        state.style = state.style.replace(/background-color:\s*[^;]+;?\s*/, '');
+                    }
+
+                    const newElement = createElementFromState(state);
+                    setActiveElement({ currentTarget: newElement });
+                    saveState();
+                    sessionStorage.removeItem('myEditorClipboard'); // Limpa após o uso
+                    return;
+                }
+            } catch (e) {
+                console.error("Falha ao colar do clipboard interno.", e);
+            }
+        }
+
+        const clipboardData = event.clipboardData || window.clipboardData;
+        if (!clipboardData) return;
+
+        // Lógica para colar IMAGENS (funcionalidade mantida)
+        const items = clipboardData.items;
+        if (items) {
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf("image") !== -1) {
+                    const file = items[i].getAsFile();
+                    if (file) {
+                        await pasteImage(file);
+                        return;
+                    }
+                }
+            }
+        }
+        
+        // CENÁRIO: Colar texto do clipboard do sistema para criar um NOVO bloco de texto.
+        const text = clipboardData.getData('text/plain');
+        if (text && text.trim().length > 0) {
+            pasteText(text);
+        }
+    }
+    
+    // --- FIM DAS MODIFICAÇÕES NO CLIPBOARD ---
+
+
+    async function pasteImage(file) {
+        const cloudinaryUrl = await uploadImageToCloudinary(file);
+        if (!cloudinaryUrl) return;
+
+        const tempImg = new Image();
+        tempImg.onload = () => {
+            const ratio = tempImg.naturalWidth / tempImg.naturalHeight;
+            const initialWidth = 150;
+            const imgContainer = document.createElement('div');
+            imgContainer.id = `element-${elementCounter++}`;
+            imgContainer.className = 'draggable-item is-image';
+
+            const img = document.createElement('img');
+            img.src = cloudinaryUrl;
+            imgContainer.appendChild(img);
+
+            const handle = document.createElement('div');
+            handle.className = 'rotation-handle';
+            imgContainer.appendChild(handle);
+
+            imgContainer.style.width = initialWidth + 'px';
+            imgContainer.style.height = (initialWidth / ratio) + 'px';
+            imgContainer.setAttribute('data-ratio', ratio);
+            imgContainer.setAttribute('data-x', '50');
+            imgContainer.setAttribute('data-y', '50');
+            imgContainer.style.transform = 'translate(50px, 50px)';
+
+            slideContainer.appendChild(imgContainer);
+            makeInteractive(imgContainer);
+            setActiveElement({ currentTarget: imgContainer });
+            saveState();
+        };
+        tempImg.src = cloudinaryUrl;
+    }
+
+    function pasteText(text) {
+        const newText = document.createElement('div');
+        newText.id = `element-${elementCounter++}`;
+        newText.className = 'draggable-item is-text';
+        newText.setAttribute('contenteditable', 'true');
+        newText.innerHTML = text.replace(/\n/g, '<br>');
+        newText.style.width = '280px';
+        newText.style.height = 'auto';
+        newText.style.fontFamily = 'Aguila';
+        newText.style.fontSize = '16px';
+
+        const posX = 20, posY = 50;
+        newText.setAttribute('data-x', posX);
+        newText.setAttribute('data-y', posY);
+        newText.style.transform = `translate(${posX}px, ${posY}px)`;
+
+        slideContainer.appendChild(newText);
+        makeInteractive(newText);
+        setActiveElement({ currentTarget: newText });
+        saveState();
+    }
+
     // === FUNÇÕES AUXILIARES ===
     function updateSlideTransform() {
         slideContainer.style.transform = `translate(${slidePosX}px, ${slidePosY}px) scale(${currentScale})`;
@@ -77,6 +331,17 @@ document.addEventListener('DOMContentLoaded', () => {
         let g = (+rgb[1]).toString(16).padStart(2, '0');
         let b = (+rgb[2]).toString(16).padStart(2, '0');
         return "#" + r + g + b;
+    }
+
+    function clearSelection() {
+        const selection = window.getSelection();
+        if (!selection) return;
+
+        if (selection.empty) {
+            selection.empty();
+        } else if (selection.removeAllRanges) {
+            selection.removeAllRanges();
+        }
     }
 
     function isColorDark(rgbColor) {
@@ -101,43 +366,28 @@ document.addEventListener('DOMContentLoaded', () => {
             updateSlideTransform();
             return;
         }
-
+        
         const target = event.target;
         let x = (parseFloat(target.getAttribute('data-x')) || 0) + event.dx;
         let y = (parseFloat(target.getAttribute('data-y')) || 0) + event.dy;
         const angle = parseFloat(target.getAttribute('data-angle')) || 0;
+        
+        // Limpa todas as linhas antes de checar por um novo alinhamento
+        document.querySelectorAll('.snap-line-v, .snap-line-h').forEach(l => l.classList.remove('visible'));
 
-        if (target.classList.contains('is-text')) {
-            const snapTargets = [
-                { x: slideContainer.offsetWidth * 0.25, y: slideContainer.offsetHeight * 0.25 },
-                { x: slideContainer.offsetWidth * 0.50, y: slideContainer.offsetHeight * 0.50 },
-                { x: slideContainer.offsetWidth * 0.75, y: slideContainer.offsetHeight * 0.75 },
-            ];
-            const snapThreshold = 3;
-            const targetRect = target.getBoundingClientRect();
-            const containerRect = slideContainer.getBoundingClientRect();
-            const centerX = (targetRect.left - containerRect.left) + (targetRect.width / 2);
-            const centerY = (targetRect.top - containerRect.top) + (targetRect.height / 2);
-            document.querySelectorAll('.snap-line-v, .snap-line-h').forEach(l => l.classList.remove('visible'));
-            for (const snap of snapTargets) {
-                if (Math.abs(centerX - snap.x) < snapThreshold) {
-                    x = x - (centerX - snap.x);
-                    document.getElementById(`snap-v-${Math.round(snap.x / slideContainer.offsetWidth * 100)}`).classList.add('visible');
-                }
-                if (Math.abs(centerY - snap.y) < snapThreshold) {
-                    y = y - (centerY - snap.y);
-                    document.getElementById(`snap-h-${Math.round(snap.y / slideContainer.offsetHeight * 100)}`).classList.add('visible');
-                }
-            }
-        }
-        else if (target.classList.contains('is-watermark')) {
+        // A lógica de snap para 'is-text' foi movida para a função 'makeInteractive'.
+        // Esta seção agora lida principalmente com a marca d'água e outros elementos.
+        if (target.classList.contains('is-watermark')) {
             const snapThreshold = 5;
             const containerWidth = slideContainer.offsetWidth;
             const elementWidth = target.offsetWidth;
             const elementCenterX = x + (elementWidth / 2);
             const containerCenterX = containerWidth / 2;
+
             if (Math.abs(elementCenterX - containerCenterX) < snapThreshold) {
                 x = containerCenterX - (elementWidth / 2);
+                // ADICIONADO: Torna a linha de alinhamento central visível
+                document.getElementById('snap-v-50').classList.add('visible');
             }
         }
 
@@ -148,61 +398,125 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function dragEndListener() {
         document.querySelectorAll('.snap-line-v, .snap-line-h').forEach(l => l.classList.remove('visible'));
+        saveState();
     }
 
     function resizeListener(event) {
         const target = event.target;
-        let x = (parseFloat(target.getAttribute('data-x')) || 0);
-        let y = (parseFloat(target.getAttribute('data-y')) || 0);
+        let x = (parseFloat(target.getAttribute('data-x')) || 0) + event.deltaRect.left;
+        let y = (parseFloat(target.getAttribute('data-y')) || 0) + event.deltaRect.top;
         const ratio = parseFloat(target.getAttribute('data-ratio'));
         const angle = parseFloat(target.getAttribute('data-angle')) || 0;
         let newWidth = event.rect.width;
         let newHeight = event.rect.height;
-
         if (ratio) newHeight = newWidth / ratio;
-
         target.style.width = newWidth + 'px';
         target.style.height = newHeight + 'px';
-
-        x += event.deltaRect.left;
-        y += event.deltaRect.top;
         target.style.transform = `translate(${x}px, ${y}px) rotate(${angle}deg)`;
         target.setAttribute('data-x', x);
         target.setAttribute('data-y', y);
     }
 
+    // --- FUNÇÃO makeInteractive CORRIGIDA COM HANDLE DE MOVIMENTO ---
     function makeInteractive(target) {
-        interact(target)
-            .draggable({
-                listeners: { move: dragMoveListener, end: dragEndListener },
-                inertia: true,
-            })
-            .resizable({
-                edges: { left: true, right: true, bottom: true, top: true },
-                listeners: { move: resizeListener },
-                modifiers: [interact.modifiers.restrictSize({ min: { width: 50 } })],
-                inertia: false
-            })
-            .on('tap', setActiveElement);
+        if (target.classList.contains('is-text')) {
+            // Para texto: usar uma "alça" (handle) para mover, liberando o elemento para seleção de texto.
+            let moveHandle = target.querySelector('.move-handle');
+            if (!moveHandle) {
+                moveHandle = document.createElement('div');
+                moveHandle.className = 'move-handle';
+                target.appendChild(moveHandle);
+            }
 
+            // Ação de arrastar é aplicada SOMENTE na alça.
+            interact(moveHandle).draggable({
+                listeners: {
+                    move(event) {
+                        const targetElement = event.target.parentElement;
+                        let x = (parseFloat(targetElement.getAttribute('data-x')) || 0) + event.dx;
+                        let y = (parseFloat(targetElement.getAttribute('data-y')) || 0) + event.dy;
+                        const angle = parseFloat(targetElement.getAttribute('data-angle')) || 0;
+
+                        // --- LÓGICA DE SNAP RESTAURADA E MELHORADA ---
+                        const snapThreshold = 5;
+                        const unscaledWidth = targetElement.offsetWidth / currentScale;
+                        const unscaledHeight = targetElement.offsetHeight / currentScale;
+                        const elementCenterX = x + unscaledWidth / 2;
+                        const elementCenterY = y + unscaledHeight / 2;
+
+                        document.querySelectorAll('.snap-line-v, .snap-line-h').forEach(l => l.classList.remove('visible'));
+
+                        const snapPoints = [0.25, 0.50, 0.75];
+                        const containerWidth = slideContainer.offsetWidth;
+                        const containerHeight = slideContainer.offsetHeight;
+
+                        // Alinhamento Vertical (centro do elemento com linhas V do slide)
+                        for (const point of snapPoints) {
+                            const snapLineX = containerWidth * point;
+                            if (Math.abs(elementCenterX - snapLineX) < snapThreshold) {
+                                x = snapLineX - (unscaledWidth / 2); // Ajusta a posição 'x'
+                                document.getElementById(`snap-v-${Math.round(point * 100)}`).classList.add('visible');
+                                break;
+                            }
+                        }
+                        
+                        // Alinhamento Horizontal (centro do elemento com linhas H do slide)
+                        for (const point of snapPoints) {
+                            const snapLineY = containerHeight * point;
+                            if (Math.abs(elementCenterY - snapLineY) < snapThreshold) {
+                                y = snapLineY - (unscaledHeight / 2); // Ajusta a posição 'y'
+                                document.getElementById(`snap-h-${Math.round(point * 100)}`).classList.add('visible');
+                                break;
+                            }
+                        }
+                        // --- FIM DA LÓGICA DE SNAP ---
+
+                        targetElement.style.transform = `translate(${x}px, ${y}px) rotate(${angle}deg)`;
+                        targetElement.setAttribute('data-x', x);
+                        targetElement.setAttribute('data-y', y);
+                    },
+                    end: dragEndListener
+                }
+            });
+
+            // O elemento de texto em si só terá a função de redimensionar e ser clicável.
+            interact(target)
+                .resizable({
+                    edges: { left: true, right: true, bottom: true, top: true },
+                    listeners: { move: resizeListener, end: saveState },
+                    modifiers: [interact.modifiers.restrictSize({ min: { width: 50 } })]
+                })
+                .draggable(false) // Desativa o arrastar no contêiner de texto.
+                .on('tap', setActiveElement);
+
+            target.addEventListener('blur', saveState);
+
+        } else {
+            // Para imagens e outros elementos: comportamento original mantido.
+            interact(target)
+                .draggable({ listeners: { move: dragMoveListener, end: dragEndListener }, inertia: true })
+                .resizable({
+                    edges: { left: true, right: true, bottom: true, top: true },
+                    listeners: { move: resizeListener, end: saveState },
+                    modifiers: [interact.modifiers.restrictSize({ min: { width: 50 } })]
+                })
+                .on('tap', setActiveElement);
+        }
+
+        // Handle de rotação (funcionalidade mantida, principalmente para imagens)
         const rotationHandle = target.querySelector('.rotation-handle');
         if (rotationHandle) {
             interact(rotationHandle).draggable({
                 onstart: function (event) {
-                    const rect = target.getBoundingClientRect();
-                    const slideRect = slideContainer.getBoundingClientRect();
+                    const rect = target.getBoundingClientRect(), slideRect = slideContainer.getBoundingClientRect();
                     target.setAttribute('data-center-x', (rect.left - slideRect.left) + rect.width / 2);
                     target.setAttribute('data-center-y', (rect.top - slideRect.top) + rect.height / 2);
                 },
                 onmove: function (event) {
-                    const centerX = parseFloat(target.getAttribute('data-center-x'));
-                    const centerY = parseFloat(target.getAttribute('data-center-y'));
-                    const slideRect = slideContainer.getBoundingClientRect();
-                    const clientX = event.clientX - slideRect.left;
-                    const clientY = event.clientY - slideRect.top;
+                    const centerX = parseFloat(target.getAttribute('data-center-x')), centerY = parseFloat(target.getAttribute('data-center-y'));
+                    const slideRect = slideContainer.getBoundingClientRect(), clientX = event.clientX - slideRect.left, clientY = event.clientY - slideRect.top;
                     const angle = Math.atan2(clientY - centerY, clientX - centerX);
-                    const x = parseFloat(target.getAttribute('data-x')) || 0;
-                    const y = parseFloat(target.getAttribute('data-y')) || 0;
+                    const x = parseFloat(target.getAttribute('data-x')) || 0, y = parseFloat(target.getAttribute('data-y')) || 0;
                     const newAngle = angle * (180 / Math.PI) + 90;
                     target.style.transform = `translate(${x}px, ${y}px) rotate(${newAngle}deg)`;
                     target.setAttribute('data-angle', newAngle);
@@ -210,73 +524,48 @@ document.addEventListener('DOMContentLoaded', () => {
                 onend: function (event) {
                     target.removeAttribute('data-center-x');
                     target.removeAttribute('data-center-y');
+                    saveState();
                 }
             });
         }
     }
 
     function setActiveElement(event) {
+        if (activeElement === event.currentTarget) return;
+
         if (activeElement) {
             activeElement.classList.remove('selected');
         }
+
         activeElement = event.currentTarget;
         activeElement.classList.add('selected');
-        updateToolbarState();
-    }
 
-    document.addEventListener('click', function (e) {
-        if (!slideContainer.contains(e.target) && !e.target.closest('.editor-toolbar') && activeElement) {
-            activeElement.classList.remove('selected');
-            activeElement = null;
-            updateToolbarState();
-        }
-    });
+        const allElements = Array.from(slideContainer.querySelectorAll('.draggable-item'));
+        const maxZIndex = allElements.reduce((max, el) => {
+            const zIndex = parseInt(el.style.zIndex, 10) || 0;
+            return el === activeElement ? max : Math.max(max, zIndex);
+        }, 0);
+
+        activeElement.style.zIndex = maxZIndex + 1;
+
+        updateToolbarState();
+        saveState();
+    }
 
     // === RENDERIZAÇÃO E ESTADO ===
     function saveCurrentSlideContent() {
-        if (currentSlideIndex < 0 || !allRoteiros[currentSlideIndex]) return;
-        const elementsData = [];
-        slideContainer.querySelectorAll('.draggable-item').forEach(el => {
-            const isText = el.classList.contains('is-text');
-            const type = isText ? 'text' : (el.classList.contains('is-watermark') ? 'watermark' : 'image');
-            const elementState = {
-                id: el.id, type: type,
-                x: el.getAttribute('data-x') || 0,
-                y: el.getAttribute('data-y') || 0,
-                angle: el.getAttribute('data-angle') || 0,
-                width: el.style.width,
-                height: el.style.height,
-                content: isText ? el.innerHTML : el.querySelector('img').src,
-                style: el.style.cssText
-            };
-            if (type === 'image') elementState.ratio = el.getAttribute('data-ratio');
-            elementsData.push(elementState);
-        });
-        allRoteiros[currentSlideIndex].slideState = elementsData;
-        allRoteiros[currentSlideIndex].backgroundColor = slideContainer.style.backgroundColor;
+        if (currentSlideIndex < 0 || !allRoteiros[currentSlideIndex] || historyIndex < 0) return;
+        try {
+            const state = JSON.parse(history[historyIndex]);
+            allRoteiros[currentSlideIndex].slideState = state.elements;
+            allRoteiros[currentSlideIndex].backgroundColor = state.backgroundColor;
+        } catch (e) { console.error("Error saving content from history", e); }
     }
 
     function createDefaultDOMElements(roteiro, textColor) {
-        // --- PADRÕES DE ESTILO E POSIÇÃO ---
-
-        // --- TÍTULO DO PRIMEIRO SLIDE (CAPA) ---
-        const firstSlideTitlePosX = 35;
-        const firstSlideTitlePosY = 80;
-        const firstSlideTitleFontSize = '20px';
-        const firstSlideTitleFontFamily = 'Cinzel';
-
-        // --- TÍTULOS DOS OUTROS SLIDES (PADRÃO) ---
-        const titlePosX = 35;
-        const titlePosY = 40;
-        const titleFontSize = '20px';
-        const titleFontFamily = 'Aguila Bold';
-
-        // --- CORPO DO TEXTO (PADRÃO) ---
-        const bodyPosX = 35;
-        const bodyPosY = 120;
-        const bodyBoldColor = '#000000';
-        const bodyBoldFontFamily = 'Aguila Bold'; // <-- NOVO: Fonte para o negrito do corpo
-
+        const firstSlideTitlePosX = 35, firstSlideTitlePosY = 80, firstSlideTitleFontSize = '20px', firstSlideTitleFontFamily = 'Cinzel';
+        const titlePosX = 35, titlePosY = 40, titleFontSize = '20px', titleFontFamily = 'Aguila Bold';
+        const bodyPosX = 35, bodyPosY = 120, bodyBoldColor = '#000000', bodyBoldFontFamily = 'Aguila Bold';
         if (roteiro.titulo && roteiro.titulo.trim() !== '') {
             const titleDiv = document.createElement('div');
             titleDiv.id = `element-${elementCounter++}`;
@@ -286,7 +575,6 @@ document.addEventListener('DOMContentLoaded', () => {
             titleDiv.style.color = textColor;
             titleDiv.style.textAlign = 'center';
             titleDiv.style.width = '250px';
-
             if (currentSlideIndex === 0) {
                 titleDiv.style.fontFamily = firstSlideTitleFontFamily;
                 titleDiv.style.fontSize = firstSlideTitleFontSize;
@@ -300,15 +588,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 titleDiv.setAttribute('data-y', titlePosY);
                 titleDiv.style.transform = `translate(${titlePosX}px, ${titlePosY}px)`;
             }
-
-            titleDiv.querySelectorAll('b, strong').forEach(boldEl => {
-                boldEl.style.color = textColor;
-            });
-
+            titleDiv.querySelectorAll('b, strong').forEach(boldEl => { boldEl.style.color = textColor; });
             slideContainer.appendChild(titleDiv);
             makeInteractive(titleDiv);
         }
-
         if (roteiro.corpo && roteiro.corpo.trim() !== '') {
             const bodyDiv = document.createElement('div');
             bodyDiv.id = `element-${elementCounter++}`;
@@ -323,50 +606,17 @@ document.addEventListener('DOMContentLoaded', () => {
             bodyDiv.setAttribute('data-x', bodyPosX);
             bodyDiv.setAttribute('data-y', bodyPosY);
             bodyDiv.style.transform = `translate(${bodyPosX}px, ${bodyPosY}px)`;
-
-            // Aplica a cor e a FONTE especiais para o negrito do corpo
             bodyDiv.querySelectorAll('b, strong').forEach(boldEl => {
                 boldEl.style.color = bodyBoldColor;
-                boldEl.style.fontFamily = bodyBoldFontFamily; // <-- APLICA A FONTE ESPECIAL
+                boldEl.style.fontFamily = bodyBoldFontFamily;
             });
-
             slideContainer.appendChild(bodyDiv);
             makeInteractive(bodyDiv);
         }
     }
 
     function loadState(elementsData) {
-        elementsData.forEach(data => {
-            let el;
-            if (data.type === 'text') {
-                el = document.createElement('div');
-                el.innerHTML = data.content;
-                el.setAttribute('contenteditable', 'true');
-            } else {
-                el = document.createElement('div');
-                const img = document.createElement('img');
-                img.src = data.content;
-                el.appendChild(img);
-                if (data.type === 'image') {
-                    const handle = document.createElement('div');
-                    handle.className = 'rotation-handle';
-                    el.appendChild(handle);
-                }
-            }
-            el.id = data.id || `element-${elementCounter++}`;
-            el.className = `draggable-item ${data.type === 'text' ? 'is-text' : (data.type === 'watermark' ? 'is-watermark' : 'is-image')}`;
-            el.style.cssText = data.style;
-            const angle = data.angle || 0;
-            el.style.transform = `translate(${data.x}px, ${data.y}px) rotate(${angle}deg)`;
-            el.setAttribute('data-x', data.x);
-            el.setAttribute('data-y', data.y);
-            el.setAttribute('data-angle', angle);
-            if (data.type === 'image' && data.ratio) {
-                el.setAttribute('data-ratio', data.ratio);
-            }
-            slideContainer.appendChild(el);
-            makeInteractive(el);
-        });
+        elementsData.forEach(data => createElementFromState(data));
     }
 
     function updateWatermark() {
@@ -382,8 +632,7 @@ document.addEventListener('DOMContentLoaded', () => {
         watermarkEl.appendChild(img);
         watermarkEl.style.width = '96px';
         watermarkEl.style.height = 'auto';
-        const posX = 111;
-        const posY = 311;
+        const posX = 111, posY = 311;
         watermarkEl.setAttribute('data-x', posX);
         watermarkEl.setAttribute('data-y', posY);
         watermarkEl.style.transform = `translate(${posX}px, ${posY}px)`;
@@ -395,10 +644,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const roteiro = allRoteiros[currentSlideIndex];
         if (!roteiro) return;
         slideContainer.innerHTML = '';
-        const snapLinesHTML = `
-            <div class="snap-line-v" id="snap-v-25"></div> <div class="snap-line-v" id="snap-v-50"></div> <div class="snap-line-v" id="snap-v-75"></div>
-            <div class="snap-line-h" id="snap-h-25"></div> <div class="snap-line-h" id="snap-h-50"></div> <div class="snap-line-h" id="snap-h-75"></div>
-        `;
+        const snapLinesHTML = `<div class="snap-line-v" id="snap-v-25"></div><div class="snap-line-v" id="snap-v-50"></div><div class="snap-line-v" id="snap-v-75"></div><div class="snap-line-h" id="snap-h-25"></div><div class="snap-line-h" id="snap-h-50"></div><div class="snap-line-h" id="snap-h-75"></div>`;
         slideContainer.innerHTML = snapLinesHTML;
         elementCounter = 0;
         const slideGlobalIndex = allRoteiros.findIndex(r => r === roteiro);
@@ -407,13 +653,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const finalBgColor = roteiro.backgroundColor || defaultBgColor;
         slideContainer.style.backgroundColor = finalBgColor;
         const textColor = isColorDark(finalBgColor) ? colors.lightGray : colors.terracota;
-
         if (roteiro.slideState && roteiro.slideState.length > 0) {
             loadState(roteiro.slideState);
         } else {
             createDefaultDOMElements(roteiro, textColor);
         }
-
         slideCounter.textContent = `${currentSlideIndex + 1} / ${allRoteiros.length}`;
         prevBtn.disabled = currentSlideIndex === 0;
         nextBtn.disabled = currentSlideIndex === allRoteiros.length - 1;
@@ -421,45 +665,33 @@ document.addEventListener('DOMContentLoaded', () => {
         activeElement = null;
         updateToolbarState();
         updateWatermark();
+        saveState();
     }
+
+    // --- API & DADOS ---
     async function uploadImageToCloudinary(file) {
         const loadingSpinner = document.getElementById('loadingSpinner');
         if (loadingSpinner) loadingSpinner.classList.remove('hidden');
-
         const formData = new FormData();
         formData.append('file', file);
         formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-
         try {
-            const response = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/upload`, {
-                method: 'POST',
-                body: formData
-            });
-
+            const response = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/upload`, { method: 'POST', body: formData });
             const data = await response.json();
-
-            // VERIFICA SE A RESPOSTA DO CLOUDINARY FOI UM ERRO
             if (!response.ok) {
-                // Se houver um objeto de erro na resposta, usa a mensagem dele
-                if (data.error) {
-                    throw new Error(data.error.message);
-                }
-                // Caso contrário, usa o status da resposta
+                if (data.error) throw new Error(data.error.message);
                 throw new Error(`Falha no upload. Status: ${response.status}`);
             }
-
             return data.secure_url;
-
         } catch (error) {
             console.error('Erro detalhado no upload:', error);
-            // MOSTRA O ERRO EXATO NO ALERTA
             alert(`Erro ao carregar a imagem: ${error.message}`);
             return null;
         } finally {
             if (loadingSpinner) loadingSpinner.classList.add('hidden');
         }
     }
-    // --- API & DADOS ---
+
     async function fetchThemes() {
         const targetDropdowns = [introThemeDropdown, themeDropdown];
         targetDropdowns.forEach(d => { d.innerHTML = '<option>Carregando...</option>'; d.disabled = true; });
@@ -481,116 +713,81 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function fetchRoteiros(tema, targetDropdown) {
-        console.log('Buscando roteiros para o tema:', tema);
         targetDropdown.innerHTML = '<option>Carregando...</option>';
         targetDropdown.disabled = true;
         try {
             const res = await fetch(`${API_BASE_URL}?action=getRoteiro&tema=${encodeURIComponent(tema)}`);
             if (!res.ok) throw new Error(`Erro de rede: ${res.status}`);
-
             const data = await res.json();
-            console.log('Resposta da API recebida:', data);
-
             if (data.status === 'success' && data.data && data.data.length > 0) {
                 themeRoteiros = data.data;
-                console.log('Roteiros armazenados:', themeRoteiros);
-
                 targetDropdown.innerHTML = '<option value="" disabled selected>Selecione um roteiro...</option>';
                 themeRoteiros.forEach((c, i) => {
-                    if (!c.title) {
-                        console.warn('AVISO: Roteiro no índice', i, 'não tem um título (c.title). Roteiro:', c);
-                    }
+                    if (!c.title) console.warn('AVISO: Roteiro no índice', i, 'não tem um título (c.title). Roteiro:', c);
                     targetDropdown.innerHTML += `<option value="${i}">${(c.title || `Roteiro Sem Título ${i + 1}`).replace(/<[^>]*>/g, '')}</option>`;
                 });
                 targetDropdown.disabled = false;
-
-                // ==========================================================
-                // NOVA LÓGICA CORRIGIDA:
-                // Se o dropdown da tela inicial foi carregado, mostra o botão.
-                // ==========================================================
-                if (targetDropdown.id === 'introCarouselDropdown') {
-                    confirmBtn.classList.remove('hidden');
-                }
-
+                if (targetDropdown.id === 'introCarouselDropdown') confirmBtn.classList.remove('hidden');
             } else {
                 targetDropdown.innerHTML = '<option>Nenhum roteiro encontrado</option>';
-                // Se não encontrou roteiros, garante que o botão de confirmar esteja escondido
-                if (targetDropdown.id === 'introCarouselDropdown') {
-                    confirmBtn.classList.add('hidden');
-                }
+                if (targetDropdown.id === 'introCarouselDropdown') confirmBtn.classList.add('hidden');
             }
         } catch (err) {
             console.error('Falha CRÍTICA ao buscar roteiros.', err);
             targetDropdown.innerHTML = '<option>Erro ao carregar</option>';
         }
     }
+
     async function loadRoteiroByIndex(index) {
         const carouselOriginal = themeRoteiros[index];
         if (!carouselOriginal) return;
-
         const carrosselId = carouselOriginal.slides[0]?.carrossel_id;
         if (!carrosselId) {
             console.error("ID do carrossel não encontrado.");
             return;
         }
-
         try {
             const response = await fetch(`${API_BASE_URL}?action=getEditedRoteiro&carrossel_id=${carrosselId}`);
             const result = await response.json();
-
             if (result.status === 'success' && result.data) {
-                console.log("Carregando roteiro editado da planilha.");
                 allRoteiros = result.data;
             } else {
-                console.log("Carregando roteiro original.");
                 allRoteiros = JSON.parse(JSON.stringify(carouselOriginal.slides));
-
-                // --- LÓGICA DO SLIDE DE TÍTULO (CAPA) ---
                 const firstSlide = allRoteiros[0];
                 if (firstSlide && firstSlide.titulo && firstSlide.titulo.trim() !== '') {
                     const titleSlide = { ...firstSlide, corpo: '', fechamento: '' };
                     allRoteiros.unshift(titleSlide);
                     allRoteiros[1].titulo = '';
                 }
-
-                // ==========================================================
-                // NOVA LÓGICA PARA O SLIDE DE FECHAMENTO
-                // ==========================================================
                 const lastSlideData = carouselOriginal.slides[carouselOriginal.slides.length - 1];
                 if (lastSlideData && lastSlideData.fechamento && lastSlideData.fechamento.trim() !== '') {
-                    // Cria um novo slide apenas com o texto de fechamento no corpo
-                    const closingSlide = {
-                        ...lastSlideData,
-                        titulo: '',
-                        corpo: lastSlideData.fechamento
-                    };
+                    const closingSlide = { ...lastSlideData, titulo: '', corpo: lastSlideData.fechamento };
                     allRoteiros.push(closingSlide);
                 }
             }
-
         } catch (error) {
             console.error("Erro ao buscar roteiro editado, carregando original.", error);
             allRoteiros = JSON.parse(JSON.stringify(carouselOriginal.slides));
         }
-
+        history = [];
+        historyIndex = -1;
         currentSlideIndex = 0;
         renderSlide();
     }
+
     async function saveEditedRoteiro() {
         saveCurrentSlideContent();
         if (!allRoteiros || allRoteiros.length === 0) {
             alert('Não há nada para salvar.');
             return;
         }
-        console.log("Salvando roteiro:", allRoteiros);
         const saveBtnIcon = saveBtn.querySelector('i');
         saveBtnIcon.classList.remove('fa-save');
         saveBtnIcon.classList.add('fa-spinner', 'fa-spin');
         saveBtn.disabled = true;
         try {
             const response = await fetch(`${API_BASE_URL}?action=salvarRoteiroEditado`, {
-                method: 'POST',
-                mode: 'no-cors',
+                method: 'POST', mode: 'no-cors',
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify({ slides: allRoteiros })
             });
@@ -634,6 +831,7 @@ document.addEventListener('DOMContentLoaded', () => {
         allRoteiros.splice(currentSlideIndex + 1, 0, newSlide);
         currentSlideIndex++;
         renderSlide();
+        saveState();
     }
 
     function removeCurrentSlide() {
@@ -647,6 +845,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentSlideIndex = allRoteiros.length - 1;
             }
             renderSlide();
+            saveState();
         }
     }
 
@@ -654,42 +853,28 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateToolbarState() {
         const textControls = [boldBtn, italicBtn, underlineBtn, leftAlignBtn, centerAlignBtn, rightAlignBtn, justifyBtn, fontFamilySelect, fontSizeSelect, textColorPicker, lineHeightSelect];
         const generalControls = [deleteBtn, bringToFrontBtn, sendToBackBtn, opacitySlider];
-
         [...textControls, ...generalControls].forEach(control => control && (control.disabled = !activeElement));
-
-        // O botão de reset do zoom fica sempre ativo
         if (resetZoomBtn) resetZoomBtn.disabled = false;
-
         if (!activeElement) {
             textControls.forEach(control => control && control.classList.remove('active'));
             return;
         }
-
         if (!activeElement.classList.contains('is-text')) {
             textControls.forEach(control => control.disabled = true);
             return;
         }
-
         setTimeout(() => {
             boldBtn.classList.toggle('active', document.queryCommandState('bold'));
             italicBtn.classList.toggle('active', document.queryCommandState('italic'));
             underlineBtn.classList.toggle('active', document.queryCommandState('underline'));
-
             const styles = window.getComputedStyle(activeElement);
             leftAlignBtn.classList.toggle('active', styles.textAlign === 'left' || styles.textAlign === 'start');
             centerAlignBtn.classList.toggle('active', styles.textAlign === 'center');
             rightAlignBtn.classList.toggle('active', styles.textAlign === 'right' || styles.textAlign === 'end');
             justifyBtn.classList.toggle('active', styles.textAlign === 'justify');
-
-            // --- LÓGICA DA FONTE CORRIGIDA ---
-            // Pega o nome da fonte no ponto da seleção e remove aspas
             const selectionFont = document.queryCommandValue('fontName').replace(/['"]/g, '');
-            // Usa a fonte da seleção, ou a fonte do bloco inteiro como fallback
             fontFamilySelect.value = selectionFont || styles.fontFamily.replace(/['"]/g, '');
-            // --- FIM DA CORREÇÃO ---
-
             fontSizeSelect.value = parseInt(styles.fontSize, 10);
-
             const computedLineHeight = styles.lineHeight;
             if (computedLineHeight === 'normal') {
                 lineHeightSelect.value = '1.2';
@@ -701,7 +886,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     lineHeightSelect.value = finalRatio;
                 }
             }
-
             const selectionColor = document.queryCommandValue('foreColor');
             textColorPicker.value = rgbToHex(selectionColor);
             opacitySlider.value = styles.opacity;
@@ -712,6 +896,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (activeElement && activeElement.getAttribute('contenteditable') === 'true') {
             document.execCommand(command, false, null);
             activeElement.focus();
+            saveState();
             updateToolbarState();
         }
     }
@@ -719,6 +904,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function setStyle(property, value) {
         if (activeElement) {
             activeElement.style[property] = value;
+            saveState();
             updateToolbarState();
         }
     }
@@ -733,14 +919,14 @@ document.addEventListener('DOMContentLoaded', () => {
         newText.style.height = '80px';
         newText.style.fontFamily = 'Aguila';
         newText.style.fontSize = '16px';
-        const posX = 20;
-        const posY = 50;
+        const posX = 20, posY = 50;
         newText.setAttribute('data-x', posX);
         newText.setAttribute('data-y', posY);
         newText.style.transform = `translate(${posX}px, ${posY}px)`;
         slideContainer.appendChild(newText);
         makeInteractive(newText);
         setActiveElement({ currentTarget: newText });
+        saveState();
     }
 
     function exportSlideAsPNG() {
@@ -748,11 +934,7 @@ document.addEventListener('DOMContentLoaded', () => {
             activeElement.classList.remove('selected');
             activeElement = null;
         }
-        html2canvas(slideContainer, {
-            scale: 4,
-            useCORS: true,
-            backgroundColor: null
-        }).then(canvas => {
+        html2canvas(slideContainer, { scale: 4, useCORS: true, backgroundColor: null }).then(canvas => {
             const link = document.createElement('a');
             link.download = `slide_${currentSlideIndex + 1}_exportado.png`;
             link.href = canvas.toDataURL('image/png');
@@ -761,62 +943,45 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // === SETUP DE EVENTOS DO DOM ===
-
     function setupEventListeners() {
         const addSafeListener = (el, event, handler) => {
             if (el) el.addEventListener(event, handler);
         };
 
-        // --- Listener de Upload de Imagem CORRIGIDO ---
         addSafeListener(imageUpload, 'change', async (e) => {
             const file = e.target.files?.[0];
             if (!file) return;
-
-            // 1. FAZ O UPLOAD PARA O CLOUDINARY PRIMEIRO
             const cloudinaryUrl = await uploadImageToCloudinary(file);
-            e.target.value = ''; // Limpa o input para poder selecionar o mesmo arquivo de novo
-
-            // 2. VERIFICA SE O UPLOAD FUNCIONOU
-            if (!cloudinaryUrl) {
-                console.error("Upload para o Cloudinary falhou. A imagem não será adicionada.");
-                return; // Para a execução se o upload falhou
-            }
-
-            // 3. USA A URL DO CLOUDINARY PARA CRIAR A IMAGEM NO SLIDE
+            e.target.value = '';
+            if (!cloudinaryUrl) return;
             const tempImg = new Image();
             tempImg.onload = () => {
                 const ratio = tempImg.naturalWidth / tempImg.naturalHeight;
                 const initialWidth = 150;
-
                 const imgContainer = document.createElement('div');
                 imgContainer.id = `element-${elementCounter++}`;
                 imgContainer.className = 'draggable-item is-image';
-
                 const img = document.createElement('img');
-                img.src = cloudinaryUrl; // <-- USA A URL CORRETA DO CLOUDINARY
+                img.src = cloudinaryUrl;
                 imgContainer.appendChild(img);
-
                 const handle = document.createElement('div');
                 handle.className = 'rotation-handle';
                 imgContainer.appendChild(handle);
-
                 imgContainer.style.width = initialWidth + 'px';
                 imgContainer.style.height = (initialWidth / ratio) + 'px';
                 imgContainer.setAttribute('data-ratio', ratio);
                 imgContainer.setAttribute('data-x', '50');
                 imgContainer.setAttribute('data-y', '50');
-                imgContainer.style.transform = `translate(50px, 50px)`;
-
+                imgContainer.style.transform = 'translate(50px, 50px)';
                 slideContainer.appendChild(imgContainer);
                 makeInteractive(imgContainer);
+                saveState();
             };
-            // Carrega a imagem temporária usando a URL para pegar as dimensões
             tempImg.src = cloudinaryUrl;
         });
 
-        // --- O RESTANTE DOS LISTENERS ---
         addSafeListener(introThemeDropdown, 'change', e => { confirmBtn.classList.add('hidden'); fetchRoteiros(e.target.value, introCarouselDropdown); });
-        addSafeListener(introCarouselDropdown, 'change', () => confirmBtn.classList.remove('hidden'));
+        addSafeListener(introCarouselDropdown, 'change', () => { /* Apenas para o CSS :valid funcionar */ });
         addSafeListener(confirmBtn, 'click', () => {
             const idx = parseInt(introCarouselDropdown.value, 10);
             if (!isNaN(idx) && themeRoteiros[idx]) {
@@ -829,6 +994,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 loadRoteiroByIndex(idx);
             }
         });
+
         addSafeListener(themeDropdown, 'change', e => fetchRoteiros(e.target.value, carouselDropdown));
         addSafeListener(carouselDropdown, 'change', e => loadRoteiroByIndex(parseInt(e.target.value, 10)));
         addSafeListener(prevBtn, 'click', showPrevSlide);
@@ -842,56 +1008,65 @@ document.addEventListener('DOMContentLoaded', () => {
         addSafeListener(boldBtn, 'click', () => applyFormat('bold'));
         addSafeListener(italicBtn, 'click', () => applyFormat('italic'));
         addSafeListener(underlineBtn, 'click', () => applyFormat('underline'));
-        addSafeListener(leftAlignBtn, 'click', () => setStyle('textAlign', 'left'));
-        addSafeListener(centerAlignBtn, 'click', () => setStyle('textAlign', 'center'));
-        addSafeListener(rightAlignBtn, 'click', () => setStyle('textAlign', 'right'));
-        addSafeListener(justifyBtn, 'click', () => setStyle('textAlign', 'justify'));
-        addSafeListener(fontFamilySelect, 'change', e => setStyle('fontFamily', e.target.value));
-        addSafeListener(fontSizeSelect, 'change', e => setStyle('fontSize', e.target.value + 'px'));
-        addSafeListener(lineHeightSelect, 'change', e => setStyle('lineHeight', e.target.value));
+
+        const styleAndSave = (prop, val) => { setStyle(prop, val); };
+        addSafeListener(leftAlignBtn, 'click', () => styleAndSave('textAlign', 'left'));
+        addSafeListener(centerAlignBtn, 'click', () => styleAndSave('textAlign', 'center'));
+        addSafeListener(rightAlignBtn, 'click', () => styleAndSave('textAlign', 'right'));
+        addSafeListener(justifyBtn, 'click', () => styleAndSave('textAlign', 'justify'));
+        addSafeListener(fontFamilySelect, 'change', e => styleAndSave('fontFamily', e.target.value));
+        addSafeListener(fontSizeSelect, 'change', e => styleAndSave('fontSize', e.target.value + 'px'));
+        addSafeListener(lineHeightSelect, 'change', e => styleAndSave('lineHeight', e.target.value));
         addSafeListener(textColorPicker, 'input', e => {
             if (activeElement && activeElement.getAttribute('contenteditable') === 'true') {
                 activeElement.focus();
                 document.execCommand('foreColor', false, e.target.value);
+                saveState();
             }
         });
-        addSafeListener(opacitySlider, 'input', e => setStyle('opacity', e.target.value));
-        addSafeListener(bringToFrontBtn, 'click', () => {
+        addSafeListener(opacitySlider, 'input', e => styleAndSave('opacity', e.target.value));
+
+        const layerAndSave = (action) => {
             if (activeElement) {
-                const zIndexes = Array.from(slideContainer.querySelectorAll('.draggable-item:not(.selected)')).map(el => parseInt(el.style.zIndex, 10) || 0);
-                const maxZ = zIndexes.length > 0 ? Math.max(...zIndexes) : 0;
-                activeElement.style.zIndex = maxZ + 1;
+                action();
+                saveState();
             }
-        });
-        addSafeListener(sendToBackBtn, 'click', () => {
-            if (activeElement) {
-                const otherElements = slideContainer.querySelectorAll('.draggable-item:not(.selected)');
-                otherElements.forEach(el => {
-                    const currentZ = parseInt(el.style.zIndex, 10) || 0;
-                    el.style.zIndex = currentZ + 1;
-                });
-                activeElement.style.zIndex = 0;
-            }
-        });
+        };
+        addSafeListener(bringToFrontBtn, 'click', () => layerAndSave(() => {
+            const zIndexes = Array.from(slideContainer.querySelectorAll('.draggable-item:not(.selected)')).map(el => parseInt(el.style.zIndex, 10) || 0);
+            const maxZ = zIndexes.length > 0 ? Math.max(...zIndexes) : 0;
+            activeElement.style.zIndex = maxZ + 1;
+        }));
+        addSafeListener(sendToBackBtn, 'click', () => layerAndSave(() => {
+            const otherElements = slideContainer.querySelectorAll('.draggable-item:not(.selected)');
+            otherElements.forEach(el => {
+                const currentZ = parseInt(el.style.zIndex, 10) || 0;
+                el.style.zIndex = currentZ + 1;
+            });
+            activeElement.style.zIndex = 0;
+        }));
         addSafeListener(deleteBtn, 'click', () => {
             if (activeElement) {
-                activeElement.remove();
+                const prevActive = activeElement;
                 activeElement = null;
                 updateToolbarState();
+                prevActive.remove();
+                saveState();
             }
         });
+        const colorActionAndSave = (e) => {
+            const color = e.currentTarget.dataset.color;
+            colorPicker.value = color;
+            slideContainer.style.backgroundColor = color;
+            updateWatermark();
+            saveState();
+        };
         addSafeListener(colorPicker, 'input', e => {
             slideContainer.style.backgroundColor = e.target.value;
             updateWatermark();
+            saveState();
         });
-        document.querySelectorAll('.color-shortcut').forEach(btn => {
-            addSafeListener(btn, 'click', e => {
-                const color = e.currentTarget.dataset.color;
-                colorPicker.value = color;
-                slideContainer.style.backgroundColor = color;
-                updateWatermark();
-            });
-        });
+        document.querySelectorAll('.color-shortcut').forEach(btn => { addSafeListener(btn, 'click', colorActionAndSave); });
         document.querySelectorAll('.text-color-shortcut').forEach(btn => {
             addSafeListener(btn, 'click', e => {
                 const color = e.currentTarget.dataset.color;
@@ -899,6 +1074,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (activeElement && activeElement.getAttribute('contenteditable') === 'true') {
                     activeElement.focus();
                     document.execCommand('foreColor', false, color);
+                    saveState();
                 }
             });
         });
@@ -907,6 +1083,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 setActiveElement({ currentTarget: document.activeElement });
             }
         });
+
+        // === LISTENERS PARA CLIPBOARD UNIFICADO CORRIGIDO ===
+        addSafeListener(document, 'copy', handleCopy);
+        addSafeListener(document, 'paste', handlePasteFromEvent);
+
+        // === LISTENER PARA LIMPAR SELEÇÃO AO CLICAR FORA ===
+        document.addEventListener('click', function (e) {
+            const isClickInsideSlide = slideContainer.contains(e.target);
+            const isClickOnToolbar = e.target.closest('.editor-toolbar');
+            const isClickOnHeader = e.target.closest('.main-header-bar');
+            
+            if (!isClickInsideSlide && !isClickOnToolbar && !isClickOnHeader) {
+                if (activeElement) {
+                    activeElement.classList.remove('selected');
+                    activeElement = null;
+                    updateToolbarState();
+                }
+            }
+        });
+
+        // --- LISTENERS PARA ZOOM E PAN ---
         const zoomPanContainer = document.getElementById('zoom-pan-container');
         addSafeListener(zoomPanContainer, 'wheel', (event) => {
             event.preventDefault();
@@ -916,10 +1113,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const zoomIntensity = 0.05;
             const wheel = event.deltaY < 0 ? 1 : -1;
             const scrollZoomFactor = Math.exp(wheel * zoomIntensity);
-            const minScale = 1;
-            const maxScale = 5;
-            const prevSlidePosX = slidePosX;
-            const prevSlidePosY = slidePosY;
+            const minScale = 1, maxScale = 5;
+            const prevSlidePosX = slidePosX, prevSlidePosY = slidePosY;
             const oldScale = currentScale;
             currentScale = Math.max(minScale, Math.min(maxScale, oldScale * scrollZoomFactor));
             if (currentScale === 1) {
@@ -955,26 +1150,50 @@ document.addEventListener('DOMContentLoaded', () => {
             slidePosY = 0;
             updateSlideTransform();
         });
+
+        // --- LISTENERS PARA ATALHOS DE TECLADO ---
         addSafeListener(document, 'keydown', (event) => {
-            const activeEl = document.activeElement;
-            const isTyping = activeEl.tagName === 'INPUT' || activeEl.isContentEditable;
-            if (isTyping) {
+            const isTyping = document.activeElement.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
+
+            if ((event.ctrlKey || event.metaKey) && !isTyping) {
+                let handled = false;
+                switch (event.key.toLowerCase()) {
+                    case 'z': undo(); handled = true; break;
+                    case 'y': redo(); handled = true; break;
+                }
+                if (handled) {
+                    event.preventDefault();
+                    return;
+                }
+            }
+            
+            if (event.key.toLowerCase() === 'delete' || event.key.toLowerCase() === 'backspace') {
+                if(activeElement && !isTyping) {
+                    event.preventDefault();
+                    deleteBtn.click();
+                }
+            }
+
+            if (event.code === 'Space' && !isTyping) {
+                event.preventDefault();
+                if (!isPanning) {
+                    isPanning = true;
+                    document.body.classList.add('is-panning');
+                }
                 return;
             }
+
+            if (isTyping) return;
+
             switch (event.key) {
                 case 'ArrowLeft':
-                    if (!prevBtn.disabled) {
-                        showPrevSlide();
-                    }
+                    if (!prevBtn.disabled) showPrevSlide();
                     break;
                 case 'ArrowRight':
-                    if (!nextBtn.disabled) {
-                        showNextSlide();
-                    }
+                    if (!nextBtn.disabled) showNextSlide();
                     break;
             }
         });
-
         addSafeListener(document, 'keyup', (event) => {
             if (event.code === 'Space') {
                 isPanning = false;
@@ -986,4 +1205,4 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- INICIALIZAÇÃO DA APLICAÇÃO ---
     setupEventListeners();
     fetchThemes();
-})
+});
